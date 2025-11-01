@@ -12,7 +12,8 @@ import {
   ContractExecuteTransaction,
   ContractFunctionParameters,
   Hbar,
-  AccountBalanceQuery
+  AccountBalanceQuery,
+  ContractCallQuery
 } from '@hashgraph/sdk';
 import { db, collection, addDoc, Timestamp, doc, getDoc, query, where, getDocs, updateDoc } from '../firebase';
 import {
@@ -430,9 +431,66 @@ export const WalletProvider = ({ children }) => {
     return receipt;
   }
 
-  const confirmDelivery = async (listingId) => {
+  const handleBuy = async (listing) => {
+    const rawPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
+    const userPrivateKey = PrivateKey.fromStringECDSA(rawPrivKey);
+    const userAccountId = AccountId.fromString(accountId);
+    const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
+
+    const getPriceQuery = new ContractCallQuery()
+      .setContractId(escrowContractAccountId)
+      .setGas(100000)
+      .setFunction("getListingPrice", new ContractFunctionParameters().addUint256(listing.serialNumber));
+
+    const priceQueryResult = await getPriceQuery.execute(userClient);
+    const priceInTinybarsLong = priceQueryResult.getUint256(0);
+
+    if (priceInTinybarsLong.isZero()) {
+      throw new Error("This asset is not currently listed for sale or has a price of zero.");
+    }
+
+    const priceInTinybars = priceInTinybarsLong.toNumber();
+
+    const fundTx = new ContractExecuteTransaction()
+      .setContractId(escrowContractAccountId)
+      .setGas(1000000)
+      .setPayableAmount(Hbar.fromTinybars(priceInTinybars))
+      .setFunction("fundEscrow", new ContractFunctionParameters().addUint256(listing.serialNumber));
+
+    const frozenFundTx = await fundTx.freezeWith(userClient);
+    const signedFundTx = await frozenFundTx.sign(userPrivateKey);
+    const fundTxResponse = await signedFundTx.execute(userClient);
+    await fundTxResponse.getReceipt(userClient);
+
+    const listingRef = doc(db, 'listings', listing.id);
+    await updateDoc(listingRef, {
+      status: 'Pending Delivery',
+      buyerAccountId: accountId
+    });
+
+    setFlowState("FUNDED");
+    return fundTxResponse;
+  };
+
+  const confirmDelivery = async (listingId, serialNumber) => {
+    const rawPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
+    const userPrivateKey = PrivateKey.fromStringECDSA(rawPrivKey);
+    const userAccountId = AccountId.fromString(accountId);
+    const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
+
+    const confirmTx = new ContractExecuteTransaction()
+      .setContractId(escrowContractAccountId)
+      .setGas(1000000)
+      .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(serialNumber));
+
+    const frozenConfirmTx = await confirmTx.freezeWith(userClient);
+    const signedConfirmTx = await frozenConfirmTx.sign(userPrivateKey);
+    const confirmTxResponse = await signedConfirmTx.execute(userClient);
+    await confirmTxResponse.getReceipt(userClient);
+
     const listingRef = doc(db, 'listings', listingId);
     await updateDoc(listingRef, { status: 'Delivered' });
+    setFlowState("COMPLETED");
   };
 
   const value = {
@@ -458,6 +516,7 @@ export const WalletProvider = ({ children }) => {
     depositLiquidityAsAdmin,
     liquidateLoanAsAdmin,
     confirmDelivery,
+    handleBuy,
   };
   return (
     <WalletContext.Provider value={value}>

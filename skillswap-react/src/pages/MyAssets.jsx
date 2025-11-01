@@ -87,9 +87,9 @@ const MyAssets = () => {
         fetchAssets();
     }, [accountId]);
 
-    const handleConfirmDelivery = async (listingId) => {
+    const handleConfirmDelivery = async (listingId, serialNumber) => {
         try {
-            await confirmDelivery(listingId);
+            await confirmDelivery(listingId, serialNumber);
             // Refresh the assets list to show the new status
             fetchAssets();
         } catch (error) {
@@ -118,7 +118,7 @@ const MyAssets = () => {
                                 </div>
                                 {asset.status === 'Pending Delivery' && (
                                     <button
-                                      onClick={() => handleConfirmDelivery(asset.id)}
+                                      onClick={() => handleConfirmDelivery(asset.id, asset.serialNumber)}
                                       className="confirm-delivery-btn"
                                     >
                                         Confirm Delivery
