@@ -2,7 +2,7 @@
 export const escrowContractAddress = "0xB1416BA06c7E66e797C96eCEe83d042EbFdF4c1b";
 export const assetTokenContractAddress = "0x4670300c408d7c040715ba5f980791EfD0909B7a";
 export const assetTokenId = "0.0.7134449"; // The original, valid HTS token ID
-export const escrowContractAccountId = "0.0.7174401";
+export const escrowContractAccountId = "0.0.7179851";
 export const lendingPoolContractAddress = "0xBF843467aAB99764ddBE1c04Fe553135eb8738Fc";
 export const lendingPoolContractAccountId = "0.0.7161167";
 
