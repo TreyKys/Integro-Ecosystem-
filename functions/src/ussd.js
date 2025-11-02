@@ -47,7 +47,20 @@ exports.createAccountFromUSSD = https.onCall(async (data, context) => {
 
         const responseData = await response.json();
 
-        // 4. Return the successful result to the USSD simulator
+        // 4. Save the new user's data (including private key) to Firestore
+        console.log("Attempting to save user data to Firestore:", responseData.accountId);
+        const db = admin.firestore();
+        await db.collection("users").doc(responseData.accountId).set({
+            name: name,
+            pin: pin,
+            accountId: responseData.accountId,
+            evmAddress: responseData.evmAddress,
+            privateKey: responseData.privateKey, // Storing the private key securely in Firestore
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log("Successfully saved user data to Firestore.");
+
+        // 5. Return the successful result to the USSD simulator
         return responseData;
 
     } catch (error) {
@@ -58,6 +71,8 @@ exports.createAccountFromUSSD = https.onCall(async (data, context) => {
 });
 
 exports.listProductFromUSSD = https.onCall(async (data, context) => {
+    console.log("--- listProductFromUSSD ---");
+    console.log("Received data:", data);
     try {
         const { sellerAccountId, productName, price, description, location } = data;
         if (!sellerAccountId || !productName || !price || !description || !location) {
