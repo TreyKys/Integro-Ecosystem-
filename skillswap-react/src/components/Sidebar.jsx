@@ -45,7 +45,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                     </ul>
                     <h4 className="menu-header">SPECIAL FEATURE</h4>
                     <ul>
-                        <li><Link to="#" onClick={onClose}><UssdIcon /> USSD</Link></li>
+                        <li><Link to="/ussd-simulator" onClick={onClose}><UssdIcon /> USSD</Link></li>
                     </ul>
                     <h4 className="menu-header">ABOUT</h4>
                     <ul>
