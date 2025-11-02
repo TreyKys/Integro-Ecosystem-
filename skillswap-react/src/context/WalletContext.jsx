@@ -253,50 +253,64 @@ export const WalletProvider = ({ children }) => {
 
   const handleList = async (price, serialToUse) => {
     const currentSerial = serialToUse || nftSerialNumber;
-    // --- Defensive Programming: Check for null values ---
-    if (!assetTokenId) {
-      console.error("handleList Error: assetTokenId is not set. Please check hedera.js");
-      throw new Error("Configuration error: assetTokenId is missing.");
-    }
     if (currentSerial === null || currentSerial === undefined) {
-      console.error("handleList Error: nftSerialNumber is not set. Minting may have failed.");
+      console.error("handleList called without a serial number.");
       throw new Error("State error: nftSerialNumber is missing.");
     }
-    console.log(`handleList: Listing NFT ${assetTokenId} - Serial: ${currentSerial} for price: ${price}`);
+    console.log(`handleList: Starting listing for serial ${currentSerial} at price ${price} HBAR.`);
 
     const rawPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
     const userPrivateKey = PrivateKey.fromStringECDSA(rawPrivKey);
     const userAccountId = AccountId.fromString(accountId);
     const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
+    console.log(`handleList: Client configured for seller: ${userAccountId}.`);
 
-    const tokenIdObj = TokenId.fromString(assetTokenId);
-    const nftIdObj = new NftId(tokenIdObj, Number(currentSerial));
+    // Step 1: Approve the escrow contract to transfer the NFT
+    console.log(`handleList: Approving escrow contract ${escrowContractAccountId} for NFT...`);
+    try {
+      const approveTx = new AccountAllowanceApproveTransaction()
+        .approveTokenNftAllowance(new NftId(TokenId.fromString(assetTokenId), currentSerial), userAccountId, AccountId.fromString(escrowContractAccountId));
 
-    const allowanceTx = new AccountAllowanceApproveTransaction()
-      .approveTokenNftAllowance(nftIdObj, userAccountId, escrowContractAccountId);
+      const frozenApproveTx = await approveTx.freezeWith(userClient);
+      const signedApproveTx = await frozenApproveTx.signWithOperator(userClient);
+      const approveTxResponse = await signedApproveTx.execute(userClient);
+      console.log("handleList: Approval transaction submitted. Waiting for receipt...");
+      const approveReceipt = await approveTxResponse.getReceipt(userClient);
+      console.log(`handleList: Approval transaction status: ${approveReceipt.status.toString()}`);
+      if (approveReceipt.status.toString() !== 'SUCCESS') {
+        throw new Error(`NFT Approval failed with status: ${approveReceipt.status.toString()}`);
+      }
+    } catch (error) {
+      console.error("handleList: Error during NFT approval:", error);
+      throw error;
+    }
 
-    const frozenTx = await allowanceTx.freezeWith(userClient);
-    const signedTx = await frozenTx.sign(userPrivateKey);
-    const txResponse = await signedTx.execute(userClient);
-    await txResponse.getReceipt(userClient);
+    // Step 2: List the asset on the escrow contract
+    console.log(`handleList: Listing asset on contract ${escrowContractAccountId}...`);
+    try {
+      const priceInTinybars = Hbar.from(price).toTinybars();
+      console.log(`handleList: Price in tinybars: ${priceInTinybars.toString()}`);
 
-    const priceInWei = Hbar.from(price).toTinybars();
-    const listAssetTx = new ContractExecuteTransaction()
-      .setContractId(escrowContractAccountId)
-      .setGas(1000000)
-      .setFunction("listAsset", new ContractFunctionParameters()
-        .addUint256(currentSerial)
-        .addUint256(priceInWei)
-      );
+      const listAssetTx = new ContractExecuteTransaction()
+        .setContractId(escrowContractAccountId)
+        .setGas(1000000)
+        .setFunction("listAsset", new ContractFunctionParameters()
+          .addUint256(BigInt(currentSerial))
+          .addUint256(BigInt(priceInTinybars.toString()))
+        );
 
-    const frozenListTx = await listAssetTx.freezeWith(userClient);
-    const signedListTx = await frozenListTx.sign(userPrivateKey);
-    const listTxResponse = await signedListTx.execute(userClient);
+      const frozenListAssetTx = await listAssetTx.freezeWith(userClient);
+      const signedListAssetTx = await frozenListAssetTx.signWithOperator(userClient);
+      const listAssetTxResponse = await signedListAssetTx.execute(userClient);
+      console.log("handleList: ListAsset transaction submitted. The calling function will await the receipt.");
 
-    // Note: We await the receipt in the calling function now.
-
-    setFlowState("LISTED");
-    return listTxResponse;
+      // The calling function will await the receipt
+      setFlowState("LISTED");
+      return listAssetTxResponse; // Return the response object
+    } catch (error) {
+      console.error("handleList: Error during contract execution for listAsset:", error);
+      throw error;
+    }
   };
 
   const approveNFTForPool = async (serialNumber) => {

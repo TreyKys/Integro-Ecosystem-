@@ -30,7 +30,9 @@ const LandingPage = () => {
       const normalizedPriv = privateKey.startsWith("0x") ? privateKey : "0x" + privateKey;
 
       createVault(accountId, normalizedPriv, evmAddress);
-      navigate('/profile-setup');
+      // The declarative <Navigate> in App.jsx will handle the redirect.
+      // Calling navigate() here creates a race condition.
+      // navigate('/marketplace');
 
     } catch (error) {
       console.error("Vault creation failed:", error);
