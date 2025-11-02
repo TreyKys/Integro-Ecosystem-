@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { db } from '../firebase';
 import './USSDSimulator.css';
 
@@ -24,6 +24,26 @@ const USSDSimulator = () => {
             inputRef.current.focus();
         }
     }, []);
+
+    useEffect(() => {
+        if (currentUser && currentUser.accountId) {
+            const q = query(
+                collection(db, "sms_inbox"),
+                where("recipient", "==", currentUser.accountId),
+                orderBy("createdAt", "desc")
+            );
+
+            const unsubscribe = onSnapshot(q, (querySnapshot) => {
+                const messages = [];
+                querySnapshot.forEach((doc) => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                setSmsMessages(messages);
+            });
+
+            return () => unsubscribe();
+        }
+    }, [currentUser]);
 
     const handleKeyDown = (event) => {
         if (event.key === 'Enter') {
@@ -205,8 +225,13 @@ const USSDSimulator = () => {
                             const dialCode = `*878*2*1*${p.id}#`;
                             smsContent += `${p.productName} - ${p.price} Hbar, sold by ${p.sellerName || 'Tunde'}\nDial: ${dialCode}\n\n`;
                         });
-                        setTimeout(() => {
-                           setSmsMessages(prev => [...prev, { sender: 'Marketplace', content: smsContent, recipient: currentUser.accountId }]);
+                        setTimeout(async () => {
+                            await addDoc(collection(db, "sms_inbox"), {
+                                sender: 'Marketplace',
+                                content: smsContent,
+                                recipient: currentUser.accountId,
+                                createdAt: serverTimestamp()
+                            });
                         }, 2000);
                         newMenuState = 'home';
                     }
@@ -234,10 +259,21 @@ const USSDSimulator = () => {
                             // Find the seller to send them the SMS
                             const seller = users.find(u => u.accountId === tempSession.selectedListing.sellerAccountId);
 
-                            setSmsMessages(prev => [...prev,
-                                { sender: 'Integro', content: sellerMsg, recipient: seller ? seller.accountId : null }, // Send to specific seller
-                                { sender: 'Integro', content: buyerMsg, recipient: currentUser.accountId }
-                            ]);
+                            // Persist SMS messages to Firestore
+                            await addDoc(collection(db, "sms_inbox"), {
+                                sender: 'Integro',
+                                content: sellerMsg,
+                                recipient: seller ? seller.accountId : null,
+                                createdAt: serverTimestamp()
+                            });
+
+                            await addDoc(collection(db, "sms_inbox"), {
+                                sender: 'Integro',
+                                content: buyerMsg,
+                                recipient: currentUser.accountId,
+                                createdAt: serverTimestamp()
+                            });
+
                             setScreenText('Transaction complete! Tunde has been paid. Thank you for using Integro.');
                         } catch(e) {
                             console.error(e);
