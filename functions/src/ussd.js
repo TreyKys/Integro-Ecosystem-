@@ -1,5 +1,5 @@
 const { https } = require("firebase-functions");
-const { getFunctions } = require('firebase-admin/functions');
+const fetch = require('node-fetch');
 const { Hbar, Client, PrivateKey, TokenMintTransaction, TransferTransaction, TokenAssociateTransaction, AccountAllowanceApproveTransaction, ContractExecuteTransaction, ContractFunctionParameters } = require("@hashgraph/sdk");
 const admin = require("firebase-admin");
 const { logger } = require("firebase-functions");
@@ -13,6 +13,8 @@ const HEDERA_ADMIN_SUPPLY_KEY = process.env.HEDERA_ADMIN_SUPPLY_KEY;
 // --- Configuration ---
 const assetTokenId = "0.0.7134449"; // Replace with your token ID
 const escrowContractId = "0.0.7152729"; // Replace with your contract ID
+const CREATE_ACCOUNT_URL = "https://createaccount-cehqwvb4aq-uc.a.run.app";
+
 
 // ---
 // This is your NEW, safe wrapper function
@@ -23,23 +25,30 @@ exports.createAccountFromUSSD = https.onCall(async (data, context) => {
     const { name, pin } = data;
 
     // 2. TRANSFORM it into the object your ORIGINAL `createAccount` expects
-    // We add placeholder data (like a fake email) just to make it work.
-    const fakeDataForOldFunction = {
-        fullName: name,
+    const requestBody = {
+        fullName: name, // Match the expected field
         pin: pin,
         email: 'user@ussd.integro.io', // Placeholder email
-        // Add any other fields your original `createAccount` *must* have
     };
 
     try {
-        // 3. Call your ORIGINAL, WORKING `createAccount` function *internally*
-        // This is the "shortcut" wiring you wanted.
-        const result = await getFunctions()
-                            .httpsCallable('createAccount') // <-- Using your correct function
-                            .call(fakeDataForOldFunction);
+        // 3. Call your ORIGINAL, WORKING `createAccount` function via HTTP
+        const response = await fetch(CREATE_ACCOUNT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Internal call to createAccount failed:", errorText);
+            throw new https.HttpsError('internal', `The account creation failed with status: ${response.status}`);
+        }
+
+        const responseData = await response.json();
 
         // 4. Return the successful result to the USSD simulator
-        return result.data;
+        return responseData;
 
     } catch (error) {
         // 5. If the original function fails, pass the error back
