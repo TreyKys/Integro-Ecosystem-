@@ -38,6 +38,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/" element={!accountId ? <LandingPage /> : <Navigate to="/marketplace" />} />
+      <Route path="/ussd-simulator" element={<USSDSimulator />} />
       <Route
         path="/*"
         element={accountId ? <ProtectedRoutes /> : <Navigate to="/" />}
@@ -61,7 +62,6 @@ const ProtectedRoutes = () => {
         <Route path="/repay-loan" element={<RepayLoan />} />
         <Route path="/agent-staking" element={<AgentStaking />} />
         <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/ussd-simulator" element={<USSDSimulator />} />
         {/* Add other protected routes here */}
         <Route path="*" element={<Navigate to="/marketplace" />} />
       </Routes>

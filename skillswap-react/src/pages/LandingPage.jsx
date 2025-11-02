@@ -71,6 +71,14 @@ const LandingPage = () => {
           <button onClick={handleCreateVault} className="lp-cta-button" disabled={isProcessing}>
             {isProcessing ? 'Creating Vault...' : 'Create Your Secure Vault'}
           </button>
+          {/* NEW: Small USSD Simulator quick link - non-breaking, safe to include */}
+          <button
+            onClick={() => navigate('/ussd-simulator')}
+            className="lp-create-button"
+            style={{ marginTop: '10px', background: '#1A9F61' }}
+          >
+            Try USSD Simulator (Isolated Golden Path)
+          </button>
           {status && <p className="status-message">{status}</p>}
         </div>
       </section>

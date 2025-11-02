@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PrivateKey } from "@hashgraph/sdk";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from '../firebase';
 import './USSDSimulator.css';
@@ -18,6 +19,18 @@ const USSDSimulator = () => {
     const [currentUserIndex, setCurrentUserIndex] = useState(null);
     const [tempSession, setTempSession] = useState({});
 
+    useEffect(() => {
+        const savedUsers = localStorage.getItem("ussd-vaults");
+        if (savedUsers) {
+            const parsedUsers = JSON.parse(savedUsers);
+            setUsers(parsedUsers);
+            if (parsedUsers.length > 0) {
+                // Optional: auto-select the first user
+                // setCurrentUserIndex(0);
+            }
+        }
+    }, []);
+
     const currentUser = currentUserIndex !== null ? users[currentUserIndex] : null;
 
     const snapshotToArray = (snapshot) => {
@@ -35,17 +48,75 @@ const USSDSimulator = () => {
         setScreenText(`Switched to User #${index + 1}'s phone.\nDial *878# to begin.`);
     };
 
+    async function createVaultViaUSSD() {
+        try {
+            const newKey = PrivateKey.generateECDSA();
+            const privateKeyStr = newKey.toString();
+            const publicKeyStr = newKey.publicKey.toString();
+
+            setScreenText('Creating vault...');
+            const resp = await fetch(CREATE_ACCOUNT_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ publicKey: publicKeyStr }),
+            });
+
+            if (!resp.ok) {
+                const errText = await resp.text();
+                throw new Error("createAccount failed: " + errText);
+            }
+
+            const data = await resp.json();
+            if (!data.accountId) {
+                throw new Error("createAccount did not return accountId");
+            }
+
+            const newUser = {
+                ...tempSession,
+                accountId: data.accountId,
+                privateKey: privateKeyStr,
+            };
+
+            const updatedUsers = [...users, newUser];
+            setUsers(updatedUsers);
+            localStorage.setItem("ussd-vaults", JSON.stringify(updatedUsers));
+            setCurrentUserIndex(updatedUsers.length - 1);
+
+            setScreenText(`Vault for ${newUser.name} created! Account ID: ${newUser.accountId}`);
+            return true;
+        } catch (err) {
+            console.error("USSD createVault error", err);
+            setScreenText("Error creating vault: " + err.message);
+            return false;
+        }
+    }
+
     const handleSend = async () => {
         let newMenuState = menuState;
 
-        if (!currentUser && menuState !== 'main_menu' && inputValue !== '*878#') {
-            setScreenText('Create a user vault to start.');
-            setInputValue('');
-            return;
-        }
+        const actionRequiresVault = () => {
+            const vaultlessStates = ['home', 'main_menu', 'create_pin', 'confirm_pin', 'enter_name'];
+            if (vaultlessStates.includes(menuState)) {
+                 if(menuState === 'main_menu' && inputValue === '1') return false; // allow vault creation
+                 if(menuState === 'home' && inputValue === '*878#') return false; // allow dialing in
+                 if(vaultlessStates.includes(menuState) && menuState !== 'home' && menuState !== 'main_menu') return false;
+            }
 
-        // USSD Code routing first
+            if (!currentUser) {
+                setScreenText('Please create or select a user vault to perform this action.');
+                setInputValue('');
+                return true;
+            }
+            return false;
+        };
+
+        if (actionRequiresVault()) return;
+
+
         if (menuState === 'home' && inputValue.startsWith('*878*')) {
+            if (!currentUser) { // Double check for direct dialing
+                 setScreenText('Please create or select a user vault first.'); setInputValue(''); return;
+            }
             if (inputValue.startsWith('*878*2*1*')) {
                 const listingId = inputValue.split('*')[4].replace('#', '');
                 const listingsCol = collection(db, "listings");
@@ -75,7 +146,11 @@ const USSDSimulator = () => {
                     break;
                 case 'main_menu':
                      if (inputValue === '1') { newMenuState = 'create_pin'; setScreenText('Create a 4-digit PIN:'); }
-                     else if (inputValue === '2') { newMenuState = 'enter_pin_for_vault'; setScreenText('Enter your PIN:'); }
+                     else if (inputValue === '2') {
+                        if (users.length === 0) { setScreenText('No vault found. Please create one.'); break; }
+                        if (!currentUser) {setScreenText('Please select a user first.'); break; }
+                        newMenuState = 'enter_pin_for_vault'; setScreenText('Enter your PIN:');
+                    }
                      else if (inputValue === '3') { newMenuState = 'marketplace_menu'; setScreenText('Marketplace\n1. Goods & Produce');}
                     break;
                 case 'create_pin':
@@ -94,20 +169,8 @@ const USSDSimulator = () => {
                     break;
                 case 'enter_name':
                     setTempSession({ ...tempSession, name: inputValue });
-                    setScreenText('Creating vault...');
-                    try {
-                        const response = await fetch(CREATE_ACCOUNT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }});
-                        if(!response.ok) throw new Error("Failed to create account");
-                        const data = await response.json();
-                        const newUser = { ...tempSession, ...data };
-                        const updatedUsers = [...users, newUser];
-                        setUsers(updatedUsers);
-                        setCurrentUserIndex(updatedUsers.length - 1);
-                        setScreenText(`Vault for ${newUser.name} created! Account ID: ${newUser.accountId}`);
-                        newMenuState = 'home';
-                    } catch(e) {
-                        setScreenText('Error creating vault.');
-                    }
+                    const success = await createVaultViaUSSD();
+                    newMenuState = success ? 'home' : 'main_menu';
                     break;
                 case 'enter_pin_for_vault':
                     if (inputValue === currentUser.pin) {
@@ -142,15 +205,18 @@ const USSDSimulator = () => {
                             sellerAccountId: currentUser.accountId,
                             sellerPrivateKey: currentUser.privateKey,
                             productName: tempSession.productName,
-                            price: tempSession.price,
+                            price: parseFloat(tempSession.price),
                             description: tempSession.description,
                             location: inputValue,
                         };
                         const response = await fetch(LIST_PRODUCT_URL, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-                        if(!response.ok) throw new Error("Failed to list product");
+                        if(!response.ok) {
+                            const errText = await response.text();
+                            throw new Error(errText || "Failed to list product");
+                        }
                         setScreenText('Product listed successfully!');
                     } catch(e) {
-                        setScreenText('Error listing product.');
+                        setScreenText(`Error listing product: ${e.message}`);
                     }
                     newMenuState = 'home';
                     break;
@@ -164,7 +230,7 @@ const USSDSimulator = () => {
                         listings.forEach(p => {
                             smsContent += `${p.productName} - ${p.price} Hbar\nDial: *878*2*1*${p.id}#\n\n`;
                         });
-                        setSmsMessages([...smsMessages, { sender: 'Marketplace', content: smsContent, recipient: currentUser.accountId }]);
+                        setSmsMessages([...smsMessages, { sender: 'Marketplace', content: smsContent, recipient: currentUser?.accountId }]);
                         newMenuState = 'home';
                     }
                     break;
@@ -180,10 +246,13 @@ const USSDSimulator = () => {
                                 buyerAccountId: currentUser.accountId,
                                 buyerPrivateKey: currentUser.privateKey,
                                 listingId: tempSession.selectedListing.id,
-                                amount: tempSession.selectedListing.price
+                                amount: parseFloat(tempSession.selectedListing.price)
                             };
                             const response = await fetch(FUND_ESCROW_URL, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-                            if(!response.ok) throw new Error('Purchase failed');
+                             if(!response.ok) {
+                                const errText = await response.text();
+                                throw new Error(errText || 'Purchase failed');
+                            }
 
                             const sellerMsg = `New Order! ${currentUser.name} purchased '${tempSession.selectedListing.productName}'.`;
                             const buyerMsg = `You purchased '${tempSession.selectedListing.productName}'. To confirm delivery, dial: *878*3*${tempSession.selectedListing.id}#`;
@@ -191,7 +260,7 @@ const USSDSimulator = () => {
                             setSmsMessages(prev => [...prev, { sender: 'Integro', content: buyerMsg, recipient: currentUser.accountId }]);
                             setScreenText('Purchase successful!');
                         } catch(e) {
-                            setScreenText('Purchase failed.');
+                            setScreenText(`Purchase failed: ${e.message}`);
                         }
                     } else {
                         setScreenText('Incorrect PIN.');
@@ -212,10 +281,13 @@ const USSDSimulator = () => {
                                 listingId: tempSession.deliveryListingId
                             };
                             const response = await fetch(CONFIRM_DELIVERY_URL, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-                            if(!response.ok) throw new Error('Confirmation failed');
+                            if(!response.ok) {
+                                const errText = await response.text();
+                                throw new Error(errText || 'Confirmation failed');
+                            }
                             setScreenText('Delivery confirmed! Seller has been paid.');
                         } catch(e) {
-                             setScreenText('Confirmation failed.');
+                             setScreenText(`Confirmation failed: ${e.message}`);
                         }
                     } else {
                          setScreenText('Incorrect PIN.');
@@ -241,10 +313,10 @@ const USSDSimulator = () => {
                         onClick={() => switchUser(index)}
                         className={currentUserIndex === index ? 'active' : ''}
                     >
-                        {user.name} ({user.accountId.slice(-4)})
+                        {user.name} ({user.accountId ? user.accountId.slice(-4) : '...'})
                     </button>
                 ))}
-                 <button onClick={() => { setMenuState('main_menu'); setInputValue('1'); handleSend(); }} className="new-user-btn">+ New User</button>
+                 <button onClick={() => { setInputValue('1'); setMenuState('main_menu'); handleSend(); }} className="new-user-btn">+ New User</button>
             </div>
             <div className="ussd-simulator">
                 <div className="phone-screen"><pre>{screenText}</pre></div>
