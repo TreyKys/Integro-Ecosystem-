@@ -10,7 +10,7 @@ const FUND_ESCROW_URL = "https://fundescrowfromussd-cehqwvb4aq-uc.a.run.app";
 const CONFIRM_DELIVERY_URL = "https://confirmdeliveryfromussd-cehqwvb4aq-uc.a.run.app";
 
 const USSDSimulator = () => {
-    const [screenText, setScreenText] = useState('Dial *878# to begin');
+    const [screenText, setScreenText] = useState('V2: Dial *878# to begin');
     const [inputValue, setInputValue] = useState('');
     const [menuState, setMenuState] = useState('home');
     const [smsMessages, setSmsMessages] = useState([]);
