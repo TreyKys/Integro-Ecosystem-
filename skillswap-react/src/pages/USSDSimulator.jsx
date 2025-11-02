@@ -26,28 +26,28 @@ const USSDSimulator = () => {
     }, []);
 
     useEffect(() => {
-        // Clear messages immediately when user changes to prevent rendering stale data
-        setSmsMessages([]);
+        // This effect now fetches ALL recent messages and relies on a client-side filter.
+        // This is more robust against Firestore indexing issues which can crash the app.
+        const q = query(
+            collection(db, "sms_inbox"),
+            orderBy("createdAt", "desc")
+            // limit(50) // Optional: limit the number of messages fetched
+        );
 
-        if (currentUser && currentUser.accountId) {
-            const q = query(
-                collection(db, "sms_inbox"),
-                where("recipient", "==", currentUser.accountId),
-                orderBy("createdAt", "desc")
-            );
-
-            const unsubscribe = onSnapshot(q, (querySnapshot) => {
-                const messages = [];
-                querySnapshot.forEach((doc) => {
-                    messages.push({ id: doc.id, ...doc.data() });
-                });
-                setSmsMessages(messages);
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            const messages = [];
+            querySnapshot.forEach((doc) => {
+                messages.push({ id: doc.id, ...doc.data() });
             });
+            setSmsMessages(messages);
+        }, (error) => {
+            console.error("Error fetching SMS messages: ", error);
+            setScreenText("Error: Could not load SMS Inbox.");
+        });
 
-            // Cleanup subscription on component unmount or when currentUser changes
-            return () => unsubscribe();
-        }
-    }, [currentUser]);
+        // Cleanup subscription on component unmount
+        return () => unsubscribe();
+    }, []); // Run only once on component mount
 
     const handleKeyDown = (event) => {
         if (event.key === 'Enter') {
@@ -357,7 +357,9 @@ const USSDSimulator = () => {
             <div className="sms-inbox-container">
                 <h2>SMS Inbox {currentUser ? `for ${currentUser.name}` : ''}</h2>
                 <div className="sms-inbox">
-                    {smsMessages.map((message, index) => (
+                    {smsMessages
+                        .filter(msg => !msg.recipient || msg.recipient === currentUser?.accountId)
+                        .map((message, index) => (
                         <div key={index} className="sms-message">
                             <p className="sms-sender">{message.sender}</p>
                             <p className="sms-content">{message.content}</p>
