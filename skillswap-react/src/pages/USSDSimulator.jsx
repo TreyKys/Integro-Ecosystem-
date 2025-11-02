@@ -1,415 +1,261 @@
 import React, { useState, useEffect } from 'react';
+import { collection, getDocs } from "firebase/firestore";
+import { db } from '../firebase';
 import './USSDSimulator.css';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getFirestore, collection, onSnapshot, query, where, orderBy, doc, getDoc } from 'firebase/firestore';
 
 const USSDSimulator = () => {
-    const [inputValue, setInputValue] = useState('');
     const [screenText, setScreenText] = useState('Dial *878# to begin');
-    const [currentMenu, setCurrentMenu] = useState('home');
-    const [sessions, setSessions] = useState({}); // To manage multiple user sessions
-    const [currentUser, setCurrentUser] = useState(null); // The currently active user
-    const [smsInboxes, setSmsInboxes] = useState({});
-    const [isLoading, setIsLoading] = useState(false);
-
+    const [inputValue, setInputValue] = useState('');
+    const [menuState, setMenuState] = useState('home');
+    const [smsMessages, setSmsMessages] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [currentUserIndex, setCurrentUserIndex] = useState(null);
+    const [tempSession, setTempSession] = useState({});
 
     const functions = getFunctions();
-    const db = getFirestore();
+    const currentUser = currentUserIndex !== null ? users[currentUserIndex] : null;
 
-    const switchUser = (user) => {
-        setCurrentUser(user);
-        // Resetting the USSD state for the new user
-        setScreenText('Dial *878# to begin');
-        setCurrentMenu('home');
+    const snapshotToArray = (snapshot) => {
+        const array = [];
+        snapshot.forEach((doc) => array.push({ id: doc.id, ...doc.data() }));
+        return array;
     };
 
-    const handleButtonClick = (value) => {
-        setInputValue(inputValue + value);
-    };
+    const handleInput = (value) => setInputValue(inputValue + value);
+    const handleClear = () => setInputValue('');
 
-    const handleClear = () => {
-        setInputValue('');
+    const switchUser = (index) => {
+        setCurrentUserIndex(index);
+        setMenuState('home');
+        setScreenText(`Switched to User #${index + 1}'s phone.\nDial *878# to begin.`);
     };
 
     const handleSend = async () => {
-        const input = inputValue.trim();
-        setInputValue('');
+        let newMenuState = menuState;
 
-        if (!currentUser) {
-            setScreenText("Please select a user to start.");
+        if (!currentUser && menuState !== 'main_menu' && inputValue !== '*878#') {
+            setScreenText('Create a user vault to start.');
+            setInputValue('');
             return;
         }
 
-        if (isLoading) return;
+        // USSD Code routing first
+        if (menuState === 'home' && inputValue.startsWith('*878*')) {
+            if (inputValue.startsWith('*878*2*1*')) {
+                const listingId = inputValue.split('*')[4].replace('#', '');
+                const listingsCol = collection(db, "listings");
+                const snapshot = await getDocs(listingsCol);
+                const listing = snapshotToArray(snapshot).find(l => l.id === listingId);
 
-        const session = sessions[currentUser] || {};
-
-        // Handle "Buy Now" and "Confirm Delivery" codes
-        if (input.startsWith('*878*2*1*') && input.endsWith('#')) {
-            const listingId = input.substring(9, input.length - 1);
-            const listingRef = doc(db, "listings", listingId);
-            const listingSnap = await getDoc(listingRef);
-            if (listingSnap.exists()) {
-                const listing = listingSnap.data();
-                setSessions({
-                    ...sessions,
-                    [currentUser]: { ...session, purchase: { listingId, listing } }
-                });
-                setScreenText(`Buy '${listing.productName}' for ${listing.price} HBAR from ${listing.sellerAccountId}?\n1. Confirm\n2. Cancel`);
-                setCurrentMenu('confirm_purchase');
-            } else {
-                setScreenText("Listing not found.");
+                if (listing) {
+                    setTempSession({ selectedListing: listing });
+                    setScreenText(`Buy '${listing.productName}' for ${listing.price} HBAR?\n1. Confirm\n2. Cancel`);
+                    newMenuState = 'confirm_purchase';
+                } else {
+                    setScreenText('Invalid listing code.');
+                }
+            } else if (inputValue.startsWith('*878*3*')) {
+                const listingId = inputValue.split('*')[3].replace('#', '');
+                setTempSession({ ...tempSession, deliveryListingId: listingId });
+                setScreenText(`Confirm delivery for listing ${listingId}?\n1. Confirm\n2. Cancel`);
+                newMenuState = 'confirm_delivery';
             }
-            return;
-        }
-        if (input.startsWith('*878*3*') && input.endsWith('*')) {
-            const listingId = input.substring(7, input.length - 1);
-            setSessions({
-                ...sessions,
-                [currentUser]: { ...session, purchase: { listingId } }
-            });
-            setScreenText(`Confirm delivery of 'Product' from 'Seller'?\n1. Confirm\n2. Cancel`);
-            setCurrentMenu('confirm_delivery');
-            return;
-        }
-
-
-        switch (currentMenu) {
-            case 'home':
-                if (input === '*878#') {
-                    setScreenText('Welcome to Integro\n1. Create Vault\n2. My Vault\n3. View Marketplace');
-                    setCurrentMenu('main');
-                } else {
-                    setScreenText('Invalid code. Dial *878# to begin');
-                }
-                break;
-
-            case 'main':
-                if (input === '1') {
-                    setScreenText('Please create a 4-digit PIN for your Vault:');
-                    setCurrentMenu('create_vault_pin');
-                } else if (input === '2') {
-                    if (!session.accountId) {
-                        setScreenText('You must create a vault first.\n1. Create Vault');
-                        setCurrentMenu('main');
-                        return;
+        } else {
+            switch (menuState) {
+                case 'home':
+                    if (inputValue === '*878#') {
+                        setScreenText(`Welcome to Integro\n1. Create Vault\n2. My Vault\n3. View Marketplace`);
+                        newMenuState = 'main_menu';
                     }
-                    setScreenText('Enter your 4-digit PIN:');
-                    setCurrentMenu('enter_pin_for_vault');
-                } else if (input === '3') {
-                    setScreenText('Marketplace\n1. Goods & Produce\n2. Services & Gigs');
-                    setCurrentMenu('marketplace');
-                } else {
-                    setScreenText('Invalid selection. Please try again.');
-                }
-                break;
-
-            case 'marketplace':
-                if (input === '1') {
-                    setIsLoading(true);
-                    setScreenText('Your Request is Processing. You will receive an SMS shortly.');
-                    // The useEffect hook will handle fetching and displaying the listings
-                    setIsLoading(false);
-
-                } else {
-                    setScreenText('This feature is not yet implemented.');
-                }
-                break;
-
-            case 'confirm_purchase':
-                if (input === '1') {
-                    setScreenText('Enter your 4-digit PIN to confirm purchase:');
-                    setCurrentMenu('enter_pin_for_purchase');
-                } else {
-                    setScreenText('Purchase cancelled.');
-                    setCurrentMenu('home');
-                }
-                break;
-
-            case 'enter_pin_for_purchase':
-                if (input === session.pin) {
-                    setIsLoading(true);
-                    setScreenText('Processing your purchase...');
-
+                    break;
+                case 'main_menu':
+                     if (inputValue === '1') { newMenuState = 'create_pin'; setScreenText('Create a 4-digit PIN:'); }
+                     else if (inputValue === '2') { newMenuState = 'enter_pin_for_vault'; setScreenText('Enter your PIN:'); }
+                     else if (inputValue === '3') { newMenuState = 'marketplace_menu'; setScreenText('Marketplace\n1. Goods & Produce');}
+                    break;
+                case 'create_pin':
+                    setTempSession({ pin: inputValue });
+                    newMenuState = 'confirm_pin';
+                    setScreenText('Confirm PIN:');
+                    break;
+                case 'confirm_pin':
+                    if (inputValue === tempSession.pin) {
+                        newMenuState = 'enter_name';
+                        setScreenText('Enter your name:');
+                    } else {
+                        newMenuState = 'create_pin';
+                        setScreenText('PINs do not match. Try again:');
+                    }
+                    break;
+                case 'enter_name':
+                    setTempSession({ ...tempSession, name: inputValue });
+                    setScreenText('Creating vault...');
                     try {
-                        const fundEscrowUSSD = httpsCallable(functions, 'fundEscrowUSSD');
-                        await fundEscrowUSSD({
-                            buyerAccountId: session.accountId,
-                            listingId: session.purchase.listingId,
-                        });
-                        setScreenText('Purchase successful!');
-
-                        // Seller's SMS
-                        const sellerInbox = smsInboxes[session.purchase.listing.sellerAccountId] || [];
-                        setSmsInboxes({
-                            ...smsInboxes,
-                            [session.purchase.listing.sellerAccountId]: [...sellerInbox, {
-                                body: `New Order! ${session.userName} purchased '${session.purchase.listing.productName}' for ${session.purchase.listing.price} HBAR.\nPlease arrange delivery.`,
-                                timestamp: new Date().toLocaleTimeString()
-                            }]
-                        });
-
-                        // Buyer's SMS
-                        const buyerInbox = smsInboxes[currentUser] || [];
-                        setSmsInboxes({
-                            ...smsInboxes,
-                            [currentUser]: [...buyerInbox, {
-                                body: `Congratulations, you purchased '${session.purchase.listing.productName}' from ${session.purchase.listing.sellerAccountId}.\nTo confirm delivery, dial: *878*3*${session.purchase.listingId}*`,
-                                timestamp: new Date().toLocaleTimeString()
-                            }]
-                        });
-
-                    } catch (error) {
-                        console.error("Error funding escrow:", error);
-                        setScreenText(`Error: ${error.message}`);
-                    } finally {
-                        setIsLoading(false);
-                        setCurrentMenu('home');
+                        const createAccountFromUSSD = httpsCallable(functions, 'createAccountFromUSSD');
+                        const result = await createAccountFromUSSD({ name: inputValue, pin: tempSession.pin });
+                        const data = result.data;
+                        const newUser = { name: inputValue, pin: tempSession.pin, ...data };
+                        const updatedUsers = [...users, newUser];
+                        setUsers(updatedUsers);
+                        setCurrentUserIndex(updatedUsers.length - 1);
+                        setScreenText(`Vault for ${newUser.name} created! Account ID: ${newUser.accountId}`);
+                        newMenuState = 'home';
+                    } catch(e) {
+                        setScreenText('Error creating vault.');
                     }
-                } else {
-                    setScreenText('Incorrect PIN. Purchase cancelled.');
-                    setCurrentMenu('home');
-                }
-                break;
-
-            case 'confirm_delivery':
-                if (input === '1') {
-                    setScreenText('Enter your 4-digit PIN to complete transaction:');
-                    setCurrentMenu('enter_pin_for_delivery');
-                } else {
-                    setScreenText('Delivery confirmation cancelled.');
-                    setCurrentMenu('home');
-                }
-                break;
-
-            case 'enter_pin_for_delivery':
-                if (input === session.pin) {
-                    setIsLoading(true);
-                    setScreenText('Processing delivery confirmation...');
+                    break;
+                case 'enter_pin_for_vault':
+                    if (inputValue === currentUser.pin) {
+                        setScreenText(`Welcome ${currentUser.name}\n1. List Product\n2. My Products\n3. Balance`);
+                        newMenuState = 'vault_menu';
+                    } else {
+                        setScreenText('Incorrect PIN.');
+                    }
+                    break;
+                case 'vault_menu':
+                    if(inputValue === '1') { newMenuState = 'list_product_name'; setScreenText('Product Name:'); }
+                    break;
+                case 'list_product_name':
+                    setTempSession({...tempSession, productName: inputValue});
+                    newMenuState = 'list_product_price';
+                    setScreenText('Price (HBAR):');
+                    break;
+                case 'list_product_price':
+                    setTempSession({...tempSession, price: inputValue});
+                    newMenuState = 'list_product_desc';
+                    setScreenText('Description:');
+                    break;
+                case 'list_product_desc':
+                    setTempSession({...tempSession, description: inputValue});
+                    newMenuState = 'list_product_loc';
+                    setScreenText('Location:');
+                    break;
+                case 'list_product_loc':
+                     setScreenText('Listing product...');
                     try {
-                        const confirmDeliveryUSSD = httpsCallable(functions, 'confirmDeliveryUSSD');
-                        await confirmDeliveryUSSD({
-                            buyerAccountId: session.accountId,
-                            listingId: session.purchase.listingId,
+                        const listProductFromUSSD = httpsCallable(functions, 'listProductFromUSSD');
+                        await listProductFromUSSD({
+                            sellerAccountId: currentUser.accountId,
+                            productName: tempSession.productName,
+                            price: tempSession.price,
+                            description: tempSession.description,
+                            location: inputValue,
                         });
-                        setScreenText('Transaction complete! The seller has been paid. Thank you for using Integro.');
-                    } catch (error) {
-                        console.error("Error confirming delivery:", error);
-                        setScreenText(`Error: ${error.message}`);
-                    } finally {
-                        setIsLoading(false);
-                        setCurrentMenu('home');
+                        setScreenText('Product listed successfully!');
+                    } catch(e) {
+                        setScreenText('Error listing product.');
                     }
-                } else {
-                    setScreenText('Incorrect PIN. Delivery confirmation cancelled.');
-                    setCurrentMenu('home');
-                }
-                break;
+                    newMenuState = 'home';
+                    break;
+                case 'marketplace_menu':
+                    if(inputValue === '1') {
+                        setScreenText('Fetching listings... SMS incoming.');
+                        const listingsCol = collection(db, "listings");
+                        const snapshot = await getDocs(listingsCol);
+                        const listings = snapshotToArray(snapshot);
+                        let smsContent = "-- Integro Marketplace --\n";
+                        listings.forEach(p => {
+                            const price = p.price ? `${p.price} Hbar` : "N/A";
+                            smsContent += `${p.productName} - ${price}\nDial: *878*2*1*${p.id}#\n\n`;
+                        });
+                        setSmsMessages([...smsMessages, { sender: 'Marketplace', content: smsContent, recipient: currentUser.accountId }]);
+                        newMenuState = 'home';
+                    }
+                    break;
+                case 'confirm_purchase':
+                    if(inputValue === '1') { newMenuState = 'purchase_pin'; setScreenText('Enter PIN to confirm purchase:');}
+                    else { newMenuState = 'home'; setScreenText('Purchase canceled.'); }
+                    break;
+                case 'purchase_pin':
+                    if (inputValue === currentUser.pin) {
+                        setScreenText('Processing purchase...');
+                        try {
+                            const fundEscrowFromUSSD = httpsCallable(functions, 'fundEscrowFromUSSD');
+                            await fundEscrowFromUSSD({
+                                buyerAccountId: currentUser.accountId,
+                                listingId: tempSession.selectedListing.id,
+                            });
 
-            case 'enter_pin_for_vault':
-                if (input === session.pin) {
-                    setScreenText(`Welcome, ${session.userName}!\n1. List a Product\n2. View My Products\n3. Check Balance`);
-                    setCurrentMenu('vault_menu');
-                } else {
-                    setScreenText('Incorrect PIN. Please try again:');
-                }
-                break;
-
-            case 'vault_menu':
-                if (input === '1') {
-                    setScreenText('Enter Product Name:');
-                    setCurrentMenu('list_product_name');
-                } else {
-                    setScreenText('This feature is not yet implemented.');
-                }
-                break;
-
-            case 'list_product_name':
-                setSessions({
-                    ...sessions,
-                    [currentUser]: { ...session, product: { ...session.product, name: input } }
-                });
-                setScreenText('Enter Price (in HBAR):');
-                setCurrentMenu('list_product_price');
-                break;
-
-            case 'list_product_price':
-                 setSessions({
-                    ...sessions,
-                    [currentUser]: { ...session, product: { ...session.product, price: input } }
-                });
-                setScreenText('Enter Description:');
-                setCurrentMenu('list_product_description');
-                break;
-
-            case 'list_product_description':
-                 setSessions({
-                    ...sessions,
-                    [currentUser]: { ...session, product: { ...session.product, description: input } }
-                });
-                setScreenText('Enter Location:');
-                setCurrentMenu('list_product_location');
-                break;
-
-            case 'list_product_location':
-                const product = { ...session.product, location: input };
-                 setSessions({
-                    ...sessions,
-                    [currentUser]: { ...session, product }
-                });
-                setIsLoading(true);
-                setScreenText('Listing your product...');
-
-                try {
-                    const listProductUSSD = httpsCallable(functions, 'listProductUSSD');
-                    await listProductUSSD({
-                        sellerAccountId: session.accountId,
-                        productName: product.name,
-                        price: product.price,
-                        description: product.description,
-                        location: product.location,
-                    });
-                    setScreenText(`Success! Your '${product.name}' is now listed on the Marketplace for ${product.price} HBAR.`);
-                } catch (error) {
-                    console.error("Error listing product:", error);
-                    setScreenText(`Error: ${error.message}`);
-                } finally {
-                    setIsLoading(false);
-                    setCurrentMenu('home');
-                }
-                break;
-
-            case 'create_vault_pin':
-                if (input.length === 4 && /^\d+$/.test(input)) {
-                     setSessions({
-                        ...sessions,
-                        [currentUser]: { ...session, tempPin: input }
-                    });
-                    setScreenText('Please confirm your 4-digit PIN:');
-                    setCurrentMenu('create_vault_confirm_pin');
-                } else {
-                    setScreenText('Invalid PIN. Please enter a 4-digit PIN:');
-                }
-                break;
-
-            case 'create_vault_confirm_pin':
-                if (input === session.tempPin) {
-                    setScreenText('What is your name? (This will be shown to buyers/sellers):');
-                    setCurrentMenu('create_vault_name');
-                } else {
-                    setScreenText('PINs do not match. Please create a 4-digit PIN for your Vault:');
-                    setCurrentMenu('create_vault_pin');
-                }
-                break;
-
-            case 'create_vault_name':
-                 setSessions({
-                    ...sessions,
-                    [currentUser]: { ...session, tempName: input }
-                });
-                setIsLoading(true);
-                setScreenText('Creating your vault...');
-
-                try {
-                    const createAccountUSSD = httpsCallable(functions, 'createAccountUSSD');
-                    const result = await createAccountUSSD({ name: input, pin: session.tempPin });
-
-                    const newSession = {
-                        ...session,
-                        userName: session.tempName,
-                        accountId: result.data.accountId,
-                        pin: session.tempPin,
-                    };
-
-                    setSessions({ ...sessions, [currentUser]: newSession });
-
-                    setScreenText(`Congratulations, ${session.tempName}! Your Integro Vault is created. Account ID: ${result.data.accountId}. Dial *878# to begin.`);
-                    setCurrentMenu('home');
-                } catch (error) {
-                    console.error("Error creating account:", error);
-                    setScreenText(`Error: ${error.message}`);
-                    setCurrentMenu('main');
-                } finally {
-                    setIsLoading(false);
-                }
-                break;
-
-            default:
-                setScreenText('Invalid selection. Please try again.');
-                break;
+                            const sellerMsg = `New Order! ${currentUser.name} purchased '${tempSession.selectedListing.productName}'.`;
+                            const buyerMsg = `You purchased '${tempSession.selectedListing.productName}'. To confirm delivery, dial: *878*3*${tempSession.selectedListing.id}#`;
+                            setSmsMessages(prev => [...prev, { sender: 'Integro', content: sellerMsg, recipient: tempSession.selectedListing.sellerAccountId }]);
+                            setSmsMessages(prev => [...prev, { sender: 'Integro', content: buyerMsg, recipient: currentUser.accountId }]);
+                            setScreenText('Purchase successful!');
+                        } catch(e) {
+                            setScreenText('Purchase failed.');
+                        }
+                    } else {
+                        setScreenText('Incorrect PIN.');
+                    }
+                    newMenuState = 'home';
+                    break;
+                 case 'confirm_delivery':
+                    if(inputValue === '1') { newMenuState = 'delivery_pin'; setScreenText('Enter PIN to confirm delivery:');}
+                    else { newMenuState = 'home'; setScreenText('Confirmation canceled.'); }
+                    break;
+                case 'delivery_pin':
+                    if (inputValue === currentUser.pin) {
+                        setScreenText('Confirming delivery...');
+                        try {
+                            const confirmDeliveryFromUSSD = httpsCallable(functions, 'confirmDeliveryFromUSSD');
+                             await confirmDeliveryFromUSSD({
+                                buyerAccountId: currentUser.accountId,
+                                listingId: tempSession.deliveryListingId
+                            });
+                            setScreenText('Delivery confirmed! Seller has been paid.');
+                        } catch(e) {
+                             setScreenText('Confirmation failed.');
+                        }
+                    } else {
+                         setScreenText('Incorrect PIN.');
+                    }
+                    newMenuState = 'home';
+                    break;
+                default:
+                    setScreenText('Invalid selection.');
+                    newMenuState = 'home';
+            }
         }
+        setMenuState(newMenuState);
+        setInputValue('');
     };
 
-    useEffect(() => {
-        const q = query(collection(db, "listings"), where("state", "==", "LISTED"), orderBy("createdAt", "desc"));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            let listingsSMS = '-- Integro Marketplace --\n';
-            querySnapshot.forEach((doc) => {
-                const listing = doc.data();
-                const listingId = doc.id;
-                const price = listing.price ? `${listing.price} Hbar` : "N/A";
-                listingsSMS += `${listing.productName} - ${price}, ${listing.description}, sold by ${listing.sellerAccountId}\n`;
-                listingsSMS += `Dial: *878*2*1*${listingId}#\n\n`;
-            });
-
-            if (currentUser) {
-                setTimeout(() => {
-                    const userInbox = smsInboxes[currentUser] || [];
-                    setSmsInboxes({
-                        ...smsInboxes,
-                        [currentUser]: [...userInbox, { body: listingsSMS, timestamp: new Date().toLocaleTimeString() }]
-                    });
-                }, 2000);
-            }
-        });
-        return unsubscribe;
-    }, [db, currentUser]);
-
-
     return (
-        <div className="ussd-simulator-container">
+         <div className="ussd-simulator-container">
             <div className="user-switcher">
-                <h3>Switch User</h3>
-                <button onClick={() => { setCurrentUser('user1'); }}>User 1 (Tayo)</button>
-                <button onClick={() => { setCurrentUser('user2'); }}>User 2 (Tunde)</button>
+                <h3>Simulated Phones</h3>
+                {users.map((user, index) => (
+                    <button
+                        key={index}
+                        onClick={() => switchUser(index)}
+                        className={currentUserIndex === index ? 'active' : ''}
+                    >
+                        {user.name} ({user.accountId.slice(-4)})
+                    </button>
+                ))}
+                 <button onClick={() => { setMenuState('main_menu'); setInputValue('1'); handleSend(); }} className="new-user-btn">+ New User</button>
             </div>
             <div className="ussd-simulator">
-                <div className="phone">
-                    <div className="screen">
-                        {isLoading ? <div className="loader"></div> : <pre>{screenText}</pre>}
-                    </div>
-                    <div className="dialer">
-                        <input
-                            type="text"
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            placeholder="Enter USSD code"
-                            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                            disabled={isLoading}
-                        />
-                    </div>
-                    <div className="keypad">
-                        {['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'].map((char) => (
-                            <button key={char} onClick={() => handleButtonClick(char)} disabled={isLoading}>{char}</button>
-                        ))}
-                        <button onClick={handleClear} className="clear-button" disabled={isLoading}>Clear</button>
-                        <button onClick={handleSend} className="send-button" disabled={isLoading}>Send</button>
-                    </div>
+                <div className="phone-screen"><pre>{screenText}</pre></div>
+                <div className="dialer-input-container">
+                    <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} />
                 </div>
+                <div className="keypad">
+                    {'123456789*0#'.split('').map(char => <button key={char} onClick={() => handleInput(char)}>{char}</button>)}
+                    <button className="send-btn" onClick={handleSend}>Send</button>
+                    <button className="clear-btn" onClick={handleClear}>Clear</button>
+                </div>
+            </div>
+            <div className="sms-inbox-container">
+                <h2>SMS Inbox {currentUser ? `for ${currentUser.name}` : ''}</h2>
                 <div className="sms-inbox">
-                    <h2>SMS Inbox for {currentUser}</h2>
-                    <div className="sms-messages">
-                        {(smsInboxes[currentUser] || []).length === 0 ? (
-                            <p>No messages</p>
-                        ) : (
-                            (smsInboxes[currentUser] || []).map((sms, index) => (
-                                <div key={index} className="sms-message">
-                                    <p>{sms.body}</p>
-                                    <span className="sms-timestamp">{sms.timestamp}</span>
-                                </div>
-                            ))
-                        )}
-                    </div>
+                    {smsMessages.filter(msg => !msg.recipient || msg.recipient === currentUser?.accountId).map((message, index) => (
+                        <div key={index} className="sms-message">
+                            <p className="sms-sender">{message.sender}</p>
+                            <p className="sms-content">{message.content}</p>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>

@@ -1,6 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require('firebase-functions/params');
-const ussd = require("./ussd");
 const admin = require("firebase-admin");
 const {
   Client,
@@ -80,10 +79,13 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
   });
 });
 
-exports.createAccountUSSD = require('./ussd').createAccountUSSD;
-exports.listProductUSSD = require('./ussd').listProductUSSD;
-exports.fundEscrowUSSD = require('./ussd').fundEscrowUSSD;
-exports.confirmDeliveryUSSD = require('./ussd').confirmDeliveryUSSD;
+// USSD Functions
+const ussdFunctions = require('./src/ussd');
+exports.createAccountFromUSSD = ussdFunctions.createAccountFromUSSD;
+exports.listProductFromUSSD = ussdFunctions.listProductFromUSSD;
+exports.fundEscrowFromUSSD = ussdFunctions.fundEscrowFromUSSD;
+exports.confirmDeliveryFromUSSD = ussdFunctions.confirmDeliveryFromUSSD;
+
 
 exports.mintRWAviaUSSD = onRequest({ 
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] 
@@ -150,155 +152,6 @@ exports.mintRWAviaUSSD = onRequest({
     } catch (error) {
       console.error("ERROR minting RWA via USSD:", error);
       return response.status(500).send({ error: error.message });
-    }
-  });
-});
-
-exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] }, (request, response) => {
-  cors(request, response, async () => {
-    if (request.method !== "POST") {
-      return response.status(405).send("Method Not Allowed");
-    }
-    try {
-      const {
-        sellerAccountId,
-        sellerPrivateKey,
-        productName,
-        price,
-        description,
-        location
-      } = request.body;
-
-      // 1. Setup Client
-      const client = Client.forTestnet();
-      client.setOperator(sellerAccountId, PrivateKey.fromStringECDSA(sellerPrivateKey));
-
-      // 2. Associate Token
-      const associateTx = await new TokenAssociateTransaction()
-        .setAccountId(sellerAccountId)
-        .setTokenIds([assetTokenId])
-        .execute(client);
-      await associateTx.getReceipt(client);
-
-      // 3. Mint NFT (as admin)
-      const adminId = hederaAdminAccountId.value();
-      const adminKey = PrivateKey.fromStringECDSA(hederaAdminPrivateKey.value());
-      const supplyKey = PrivateKey.fromStringECDSA(hederaAdminSupplyKey.value());
-
-      const adminClient = Client.forTestnet();
-      adminClient.setOperator(adminId, adminKey);
-
-      const mintTx = await new TokenMintTransaction()
-        .setTokenId(assetTokenId)
-        .setMetadata([Buffer.from(description)])
-        .freezeWith(adminClient);
-      const signedMintTx = await mintTx.sign(supplyKey);
-      const mintSubmit = await signedMintTx.execute(adminClient);
-      const mintRx = await mintSubmit.getReceipt(adminClient);
-      const serialNumber = mintRx.serials[0].low;
-
-      // 4. Approve Escrow Contract
-      const approveTx = await new AccountAllowanceApproveTransaction()
-        .approveTokenNftAllowance(assetTokenId, sellerAccountId, escrowContractId, [serialNumber])
-        .execute(client);
-      await approveTx.getReceipt(client);
-
-      // 5. List on Escrow
-      const listTx = await new ContractExecuteTransaction()
-        .setContractId(escrowContractId)
-        .setGas(1000000)
-        .setFunction("listAsset", new ContractFunctionParameters().addUint256(serialNumber).addUint256(price * 10**8))
-        .execute(client);
-      await listTx.getReceipt(client);
-
-      // 6. Save to Firestore
-      const db = admin.firestore();
-      const listingId = `${assetTokenId}-${serialNumber}`;
-      await db.collection("listings").doc(listingId).set({
-        productName,
-        price,
-        description,
-        location,
-        sellerAccountId,
-        serialNumber,
-        tokenId: assetTokenId,
-        state: 'LISTED',
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-      response.status(200).send({ success: true, serialNumber });
-    } catch (error) {
-      console.error("Error in listProductFromUSSD:", error);
-      response.status(500).send({ error: error.message });
-    }
-  });
-});
-
-exports.fundEscrowFromUSSD = onRequest((request, response) => {
-  cors(request, response, async () => {
-    if (request.method !== "POST") {
-      return response.status(405).send("Method Not Allowed");
-    }
-    try {
-      const { buyerAccountId, buyerPrivateKey, listingId, amount } = request.body;
-      const [tokenId, serialNumber] = listingId.split('-');
-
-      const client = Client.forTestnet();
-      client.setOperator(buyerAccountId, PrivateKey.fromStringECDSA(buyerPrivateKey));
-
-      const fundTx = await new ContractExecuteTransaction()
-        .setContractId(escrowContractId)
-        .setGas(1000000)
-        .setPayableAmount(new Hbar(amount))
-        .setFunction("fundEscrow", new ContractFunctionParameters().addUint256(serialNumber))
-        .execute(client);
-
-      await fundTx.getReceipt(client);
-
-      const db = admin.firestore();
-      await db.collection("listings").doc(listingId).update({
-        state: 'FUNDED',
-        buyerAccountId: buyerAccountId
-      });
-
-      response.status(200).send({ success: true });
-    } catch (error) {
-      console.error("Error in fundEscrowFromUSSD:", error);
-      response.status(500).send({ error: error.message });
-    }
-  });
-});
-
-exports.confirmDeliveryFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
-  cors(request, response, async () => {
-    if (request.method !== "POST") {
-      return response.status(405).send("Method Not Allowed");
-    }
-    try {
-      const { buyerAccountId, buyerPrivateKey, listingId } = request.body;
-      const [tokenId, serialNumber] = listingId.split('-');
-
-      const client = Client.forTestnet();
-      client.setOperator(buyerAccountId, PrivateKey.fromStringECDSA(buyerPrivateKey));
-
-      const confirmTx = await new ContractExecuteTransaction()
-        .setContractId(escrowContractId)
-        .setGas(1000000)
-        .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(serialNumber))
-        .execute(client);
-
-      await confirmTx.getReceipt(client);
-
-      // Update the listing in Firestore
-      const db = admin.firestore();
-      await db.collection("listings").doc(listingId).update({
-        state: 'DELIVERED',
-      });
-
-      response.status(200).send({ success: true });
-    } catch (error) {
-      console.error("Error in confirmDeliveryFromUSSD:", error);
-      response.status(500).send({ error: error.message });
     }
   });
 });
