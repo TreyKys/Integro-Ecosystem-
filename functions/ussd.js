@@ -36,16 +36,24 @@ if (admin.apps.length === 0) {
 exports.createAccountUSSD = functions
   .runWith({ secrets: ["HEDERA_ADMIN_ACCOUNT_ID", "HEDERA_ADMIN_PRIVATE_KEY"] })
   .https.onCall(async (data, context) => {
+    console.log("--- createAccountUSSD ---");
     try {
       const { name, pin } = data;
       if (!name || !pin) {
         throw new functions.https.HttpsError('invalid-argument', 'The function must be called with "name" and "pin" arguments.');
       }
 
+      console.log("Secrets loaded:", {
+        adminAccountId: HEDERA_ADMIN_ACCOUNT_ID ? 'Loaded' : 'MISSING',
+        adminPrivateKey: HEDERA_ADMIN_PRIVATE_KEY ? 'Loaded' : 'MISSING'
+      });
+
+
       const adminAccountId = HEDERA_ADMIN_ACCOUNT_ID;
       const rawAdminPrivateKey = HEDERA_ADMIN_PRIVATE_KEY;
 
       if (!adminAccountId || !rawAdminPrivateKey) {
+        console.error("Admin credentials missing in environment.");
         throw new functions.https.HttpsError('failed-precondition', 'Admin credentials are not set.');
       }
 
@@ -56,6 +64,7 @@ exports.createAccountUSSD = functions
       const newPubKey = newPrivKey.publicKey;
       const newPrivKeyHex0x = "0x" + newPrivKey.toStringRaw();
 
+      console.log("Attempting to execute AccountCreateTransaction...");
       const acctTx = await new AccountCreateTransaction()
         .setKey(newPubKey)
         .setInitialBalance(new Hbar(65))
@@ -63,6 +72,8 @@ exports.createAccountUSSD = functions
 
       const acctReceipt = await acctTx.getReceipt(client);
       const newAccountId = acctReceipt.accountId;
+      console.log("Account created successfully:", newAccountId.toString());
+
 
       if (!newAccountId) {
         throw new functions.https.HttpsError('internal', 'Account creation failed to return an ID.');
@@ -80,6 +91,7 @@ exports.createAccountUSSD = functions
         privateKey: newPrivKeyHex0x, // Storing the private key securely in Firestore
         createdAt: admin.firestore.FieldValue.serverTimestamp()
       });
+      console.log("User data stored in Firestore.");
 
       return {
         accountId: newAccountId.toString(),
