@@ -26,6 +26,9 @@ const USSDSimulator = () => {
     }, []);
 
     useEffect(() => {
+        // Clear messages immediately when user changes to prevent rendering stale data
+        setSmsMessages([]);
+
         if (currentUser && currentUser.accountId) {
             const q = query(
                 collection(db, "sms_inbox"),
@@ -41,6 +44,7 @@ const USSDSimulator = () => {
                 setSmsMessages(messages);
             });
 
+            // Cleanup subscription on component unmount or when currentUser changes
             return () => unsubscribe();
         }
     }, [currentUser]);
@@ -353,7 +357,7 @@ const USSDSimulator = () => {
             <div className="sms-inbox-container">
                 <h2>SMS Inbox {currentUser ? `for ${currentUser.name}` : ''}</h2>
                 <div className="sms-inbox">
-                    {smsMessages.filter(msg => !msg.recipient || msg.recipient === currentUser?.accountId).map((message, index) => (
+                    {smsMessages.map((message, index) => (
                         <div key={index} className="sms-message">
                             <p className="sms-sender">{message.sender}</p>
                             <p className="sms-content">{message.content}</p>
