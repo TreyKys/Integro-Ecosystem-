@@ -1,5 +1,6 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require('firebase-functions/params');
+const ussd = require("./ussd");
 const admin = require("firebase-admin");
 const {
   Client,
@@ -78,6 +79,11 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
     }
   });
 });
+
+exports.createAccountUSSD = require('./ussd').createAccountUSSD;
+exports.listProductUSSD = require('./ussd').listProductUSSD;
+exports.fundEscrowUSSD = require('./ussd').fundEscrowUSSD;
+exports.confirmDeliveryUSSD = require('./ussd').confirmDeliveryUSSD;
 
 exports.mintRWAviaUSSD = onRequest({ 
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] 
