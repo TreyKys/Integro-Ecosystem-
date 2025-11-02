@@ -20,36 +20,47 @@ import USSDSimulator from './pages/USSDSimulator.jsx';
 
 function App() {
   return (
-    <WalletProvider>
-      <Router>
-        <AppContent />
-      </Router>
-    </WalletProvider>
+    <Router>
+      <Routes>
+        {/* Public route that should NOT have wallet context */}
+        <Route path="/ussd-simulator" element={<USSDSimulator />} />
+
+        {/* Routes that DO need wallet context */}
+        <Route
+          path="/*"
+          element={
+            <WalletProvider>
+              <AppContent />
+            </WalletProvider>
+          }
+        />
+      </Routes>
+    </Router>
   );
 }
 
 function AppContent() {
-  const { accountId, userProfile, isLoaded } = useWallet();
+  const { accountId, isLoaded } = useWallet();
 
   if (!isLoaded) {
     return <div className="loading-container">Restoring your vault...</div>;
   }
 
-  return (
-    <Routes>
-      <Route path="/" element={!accountId ? <LandingPage /> : <Navigate to="/marketplace" />} />
-      <Route
-        path="/*"
-        element={accountId ? <ProtectedRoutes /> : <Navigate to="/" />}
-      />
-    </Routes>
-  );
+  // If not logged in, show the landing page.
+  // The landing page is now a "protected" concept within the WalletProvider scope.
+  if (!accountId) {
+    return <LandingPage />;
+  }
+
+  // If logged in, show the protected routes.
+  return <ProtectedRoutes />;
 }
 
 const ProtectedRoutes = () => {
   return (
     <Layout>
       <Routes>
+        <Route path="/" element={<Navigate to="/marketplace" />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/create-listing" element={<CreateListing />} />
         <Route path="/my-assets" element={<MyAssets />} />
@@ -61,8 +72,7 @@ const ProtectedRoutes = () => {
         <Route path="/repay-loan" element={<RepayLoan />} />
         <Route path="/agent-staking" element={<AgentStaking />} />
         <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/ussd-simulator" element={<USSDSimulator />} />
-        {/* Add other protected routes here */}
+        {/* Fallback route for logged-in users */}
         <Route path="*" element={<Navigate to="/marketplace" />} />
       </Routes>
     </Layout>
