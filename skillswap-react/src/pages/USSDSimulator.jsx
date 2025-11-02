@@ -31,10 +31,21 @@ const USSDSimulator = () => {
         setScreenText(`Switched to User #${index + 1}'s phone.\nDial *878# to begin.`);
     };
 
+    const handleInitiateNewUser = () => {
+        setCurrentUserIndex(null); // Deselect any current user
+        setScreenText(`Welcome to Integro\n1. Create Vault\n2. My Vault\n3. View Marketplace`);
+        setMenuState('main_menu');
+        setInputValue('1');
+        // We need to call handleSend after a short delay to allow the state to update
+        setTimeout(() => handleSend(), 0);
+    };
+
+
     const handleSend = async () => {
         let newMenuState = menuState;
 
-        if (!currentUser && menuState !== 'main_menu' && inputValue !== '*878#') {
+        const allowedWithoutUser = ['home', 'main_menu', 'create_pin', 'confirm_pin', 'enter_name'];
+        if (!currentUser && !allowedWithoutUser.includes(menuState) && inputValue !== '*878#') {
             setScreenText('Create a user vault to start.');
             setInputValue('');
             return;
@@ -234,7 +245,7 @@ const USSDSimulator = () => {
                         {user.name} ({user.accountId.slice(-4)})
                     </button>
                 ))}
-                 <button onClick={() => { setMenuState('main_menu'); setInputValue('1'); handleSend(); }} className="new-user-btn">+ New User</button>
+                 <button onClick={handleInitiateNewUser} className="new-user-btn">+ New User</button>
             </div>
             <div className="ussd-simulator">
                 <div className="phone-screen"><pre>{screenText}</pre></div>
