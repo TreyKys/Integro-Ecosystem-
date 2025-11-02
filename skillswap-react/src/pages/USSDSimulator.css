@@ -59,6 +59,7 @@
     border: 2px solid #ccc;
     border-radius: 10px;
     padding: 1rem;
+    background-color: #f0f0f0;
 }
 
 .loader {

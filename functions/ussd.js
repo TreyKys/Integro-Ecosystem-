@@ -13,14 +13,14 @@ const {
     ContractFunctionParameters
 } = require("@hashgraph/sdk");
 const { logger } = require("firebase-functions");
-const { defineSecret } = require('firebase-functions/params');
 const ethers = require("ethers");
 const admin = require("firebase-admin");
 
 // --- Secrets ---
-const hederaAdminAccountId = defineSecret('HEDERA_ADMIN_ACCOUNT_ID');
-const hederaAdminPrivateKey = defineSecret('HEDERA_ADMIN_PRIVATE_KEY');
-const hederaAdminSupplyKey = defineSecret('HEDERA_ADMIN_SUPPLY_KEY');
+// For onCall functions, secrets are accessed via process.env
+const HEDERA_ADMIN_ACCOUNT_ID = process.env.HEDERA_ADMIN_ACCOUNT_ID;
+const HEDERA_ADMIN_PRIVATE_KEY = process.env.HEDERA_ADMIN_PRIVATE_KEY;
+const HEDERA_ADMIN_SUPPLY_KEY = process.env.HEDERA_ADMIN_SUPPLY_KEY;
 
 
 // --- Configuration ---
@@ -34,7 +34,7 @@ if (admin.apps.length === 0) {
 }
 
 exports.createAccountUSSD = functions
-  .runWith({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] })
+  .runWith({ secrets: ["HEDERA_ADMIN_ACCOUNT_ID", "HEDERA_ADMIN_PRIVATE_KEY"] })
   .https.onCall(async (data, context) => {
     try {
       const { name, pin } = data;
@@ -42,8 +42,8 @@ exports.createAccountUSSD = functions
         throw new functions.https.HttpsError('invalid-argument', 'The function must be called with "name" and "pin" arguments.');
       }
 
-      const adminAccountId = hederaAdminAccountId.value();
-      const rawAdminPrivateKey = hederaAdminPrivateKey.value();
+      const adminAccountId = HEDERA_ADMIN_ACCOUNT_ID;
+      const rawAdminPrivateKey = HEDERA_ADMIN_PRIVATE_KEY;
 
       if (!adminAccountId || !rawAdminPrivateKey) {
         throw new functions.https.HttpsError('failed-precondition', 'Admin credentials are not set.');
@@ -96,7 +96,7 @@ exports.createAccountUSSD = functions
 });
 
 exports.listProductUSSD = functions
-    .runWith({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] })
+    .runWith({ secrets: ["HEDERA_ADMIN_ACCOUNT_ID", "HEDERA_ADMIN_PRIVATE_KEY", "HEDERA_ADMIN_SUPPLY_KEY"] })
     .https.onCall(async (data, context) => {
         try {
             const { sellerAccountId, productName, price, description, location } = data;
@@ -113,9 +113,9 @@ exports.listProductUSSD = functions
 
 
             // 1. Setup Clients
-            const adminId = hederaAdminAccountId.value();
-            const adminKey = PrivateKey.fromStringECDSA(hederaAdminPrivateKey.value());
-            const supplyKey = PrivateKey.fromStringECDSA(hederaAdminSupplyKey.value());
+            const adminId = HEDERA_ADMIN_ACCOUNT_ID;
+            const adminKey = PrivateKey.fromStringECDSA(HEDERA_ADMIN_PRIVATE_KEY);
+            const supplyKey = PrivateKey.fromStringECDSA(HEDERA_ADMIN_SUPPLY_KEY);
 
             const adminClient = Client.forTestnet().setOperator(adminId, adminKey);
             const sellerClient = Client.forTestnet().setOperator(sellerAccountId, PrivateKey.fromStringECDSA(sellerPrivateKey));

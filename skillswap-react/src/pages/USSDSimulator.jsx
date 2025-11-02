@@ -347,7 +347,8 @@ const USSDSimulator = () => {
             querySnapshot.forEach((doc) => {
                 const listing = doc.data();
                 const listingId = doc.id;
-                listingsSMS += `${listing.productName} - ${listing.price} Hbar, ${listing.description}, sold by ${listing.sellerAccountId}\n`;
+                const price = listing.price ? `${listing.price} Hbar` : "N/A";
+                listingsSMS += `${listing.productName} - ${price}, ${listing.description}, sold by ${listing.sellerAccountId}\n`;
                 listingsSMS += `Dial: *878*2*1*${listingId}#\n\n`;
             });
 
