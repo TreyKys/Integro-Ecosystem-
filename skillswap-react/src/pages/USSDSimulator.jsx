@@ -7,7 +7,7 @@ import './USSDSimulator.css';
 const CREATE_ACCOUNT_URL = "https://createaccount-cehqwvb4aq-uc.a.run.app";
 const LIST_PRODUCT_URL = "https://listproductfromussd-cehqwvb4aq-uc.a.run.app";
 const FUND_ESCROW_URL = "https://fundescrowfromussd-cehqwvb4aq-uc.a.run.app";
-const CONFIRM_DELIVERY_URL = "https://confirmdeliveryfromussd-cehqwvb4aq-uc.a.run.app";
+const CONFIRM_DELIVERY_URL = "https://us-central1-integro-ecosystem.cloudfunctions.net/confirmDeliveryFromUSSD";
 
 const USSDSimulator = () => {
     const [screenText, setScreenText] = useState('Dial *878# to begin');
