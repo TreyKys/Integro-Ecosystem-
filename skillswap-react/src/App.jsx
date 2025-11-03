@@ -17,6 +17,7 @@ import DepositLiquidity from './pages/Finance/DepositLiquidity.jsx';
 import RepayLoan from './pages/Finance/RepayLoan.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import USSDSimulator from './pages/USSDSimulator.jsx';
+import UssdDemoPage from './pages/UssdDemoPage.jsx';
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/" element={!accountId ? <LandingPage /> : <Navigate to="/marketplace" />} />
+      <Route path="/ussd-demo" element={<UssdDemoPage />} />
       <Route
         path="/*"
         element={accountId ? <ProtectedRoutes /> : <Navigate to="/" />}

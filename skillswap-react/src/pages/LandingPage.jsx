@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useWallet } from '../context/WalletContext.jsx';
 import './LandingPage.css';
 
@@ -71,6 +71,9 @@ const LandingPage = () => {
           <button onClick={handleCreateVault} className="lp-cta-button" disabled={isProcessing}>
             {isProcessing ? 'Creating Vault...' : 'Create Your Secure Vault'}
           </button>
+          <Link to="/ussd-demo" className="lp-cta-button">
+            USSD Demo
+          </Link>
           {status && <p className="status-message">{status}</p>}
         </div>
       </section>
