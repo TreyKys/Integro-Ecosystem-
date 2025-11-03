@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { PrivateKey } from "@hashgraph/sdk";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from '../firebase';
 import './USSDSimulator.css';
@@ -50,15 +49,10 @@ const USSDSimulator = () => {
 
     async function createVaultViaUSSD() {
         try {
-            const newKey = PrivateKey.generateECDSA();
-            const privateKeyStr = newKey.toString();
-            const publicKeyStr = newKey.publicKey.toString();
-
             setScreenText('Creating vault...');
             const resp = await fetch(CREATE_ACCOUNT_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ publicKey: publicKeyStr }),
             });
 
             if (!resp.ok) {
@@ -68,16 +62,15 @@ const USSDSimulator = () => {
 
             const data = await resp.json();
             console.log("createAccount response:", data);
-            const accountId = data.accountId || data.account || null;
-            if (!accountId) {
-                // Defensive fallback
-                throw new Error("Account created but server did not return accountId. Check logs.");
+
+            if (!data.accountId || !data.privateKey) {
+                throw new Error("createAccount did not return accountId and privateKey");
             }
 
             const newUser = {
                 ...tempSession,
-                accountId: accountId,
-                privateKey: privateKeyStr,
+                accountId: data.accountId,
+                privateKey: data.privateKey,
             };
 
             const updatedUsers = [...users, newUser];
@@ -85,7 +78,7 @@ const USSDSimulator = () => {
             localStorage.setItem("ussd-vaults", JSON.stringify(updatedUsers));
             setCurrentUserIndex(updatedUsers.length - 1);
 
-            setScreenText(`🎉 Vault created. Account ID: ${accountId}`);
+            setScreenText(`🎉 Vault created. Account ID: ${data.accountId}`);
             return true;
         } catch (err) {
             console.error("USSD createVault error", err);
