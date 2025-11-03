@@ -12,6 +12,7 @@
   "dependencies": {
     "@hashgraph/sdk": "^2.75.0",
     "buffer": "^6.0.3",
+    "ethers": "^6.15.0",
     "firebase": "^12.4.0",
     "framer-motion": "^12.23.24",
     "react": "^19.1.1",

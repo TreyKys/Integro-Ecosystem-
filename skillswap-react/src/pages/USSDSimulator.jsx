@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs } from "firebase/firestore";
 import { db } from '../firebase';
 import './USSDSimulator.css';
+import { ethers } from "ethers";
 
 // It's better to manage these via environment variables, but for the simulator, this is okay.
 const CREATE_ACCOUNT_URL = "https://createaccount-cehqwvb4aq-uc.a.run.app";
@@ -61,11 +62,33 @@ const USSDSimulator = () => {
             }
 
             const data = await resp.json();
-            console.log("createAccount response:", data);
 
-            if (!data.accountId || !data.privateKey) {
-                throw new Error("createAccount did not return accountId and privateKey");
+            // Basic existence checks
+            if (!data || !data.accountId || !data.privateKey || !data.evmAddress) {
+              console.error("createAccount: malformed response", data);
+              throw new Error("Account creation failed: malformed response from server.");
             }
+
+            // Validate privateKey format: expect 0x + 64 hex chars (ECDSA raw)
+            if (!/^0x[0-9a-fA-F]{64}$/.test(data.privateKey)) {
+              console.error("createAccount: privateKey format invalid:", data.privateKey);
+              throw new Error("Account creation returned invalid private key format.");
+            }
+
+            // Derive the EVM address from the returned private key and compare
+            let derivedAddress;
+            try {
+              derivedAddress = (new ethers.Wallet(data.privateKey)).address.toLowerCase();
+            } catch (err) {
+              console.error("createAccount: error deriving address from privateKey:", err);
+              throw new Error("Account creation returned invalid private key.");
+            }
+
+            if (derivedAddress !== data.evmAddress.toLowerCase()) {
+              console.error("createAccount: derived address mismatch", { derivedAddress, serverEvmAddress: data.evmAddress });
+              throw new Error("Account creation mismatch: private key does not match returned EVM address.");
+            }
+
 
             const newUser = {
                 ...tempSession,
@@ -77,6 +100,13 @@ const USSDSimulator = () => {
             setUsers(updatedUsers);
             localStorage.setItem("ussd-vaults", JSON.stringify(updatedUsers));
             setCurrentUserIndex(updatedUsers.length - 1);
+
+            console.log("STORED KEY PREVIEW:", {
+              accountId: data.accountId,
+              privPreview: data.privateKey && data.privateKey.slice(0,10) + '...' + data.privateKey.slice(-6),
+              privLen: data.privateKey.length,
+              evmAddress: data.evmAddress
+            });
 
             setScreenText(`🎉 Vault created. Account ID: ${data.accountId}`);
             return true;

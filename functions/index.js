@@ -64,17 +64,35 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
         throw new Error("Failed to create account; no account id returned.");
       }
 
+      const rawHex = newPriv.toStringRaw(); // 64 hex chars
+      const newPrivHex0x = "0x" + rawHex;
       const evmAddress = (new ethers.Wallet(newPrivHex0x)).address;
+
+      console.log("createAccount: returning privateKey length:", newPrivHex0x.length, "evm:", evmAddress);
 
       return response.status(200).send({
         accountId: newAccountId.toString(),
         privateKey: newPrivHex0x,
+        publicKey: newPriv.publicKey.toString(), // helpful for debugging; remove for prod
         evmAddress: evmAddress
       });
 
     } catch (error) {
       console.error("FATAL ERROR in createAccount function:", error);
       return response.status(500).send({ error: error.message });
+    }
+  });
+});
+
+exports.verifyKey = onRequest((req, res) => {
+  cors(req, res, async () => {
+    const { privateKey, evmAddress } = req.body;
+    if (!privateKey || !evmAddress) return res.status(400).send({ ok: false, message: "missing" });
+    try {
+      const derived = (new ethers.Wallet(privateKey)).address.toLowerCase();
+      return res.status(200).send({ ok: derived === evmAddress.toLowerCase(), derived });
+    } catch (e) {
+      return res.status(400).send({ ok: false, error: e.message });
     }
   });
 });
@@ -201,6 +219,24 @@ exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hedera
         location
       } = body;
 
+      // sanity: ensure sellerPrivateKey exists and appears to be ECDSA hex
+      let sellerKeyRaw = body.sellerPrivateKey;
+      if (!sellerKeyRaw) {
+        return response.status(400).send({ error: { message: "Missing sellerPrivateKey" } });
+      }
+      if (sellerKeyRaw.startsWith('0x')) sellerKeyRaw = sellerKeyRaw.slice(2);
+      if (!/^[0-9a-fA-F]{64}$/.test(sellerKeyRaw)) {
+        console.error("listProductFromUSSD: sellerPrivateKey invalid format:", sellerKeyRaw);
+        return response.status(400).send({ error: { message: "sellerPrivateKey invalid format; expected 0x + 64 hex chars" } });
+      }
+      let sellerPrivateKeyObj;
+      try {
+        sellerPrivateKeyObj = PrivateKey.fromStringECDSA(sellerKeyRaw);
+      } catch (err) {
+        console.error("listProductFromUSSD: PrivateKey.fromStringECDSA failed:", err.message);
+        return response.status(400).send({ error: { message: "Invalid seller private key format." } });
+      }
+
       console.log("About to execute Hedera calls with:", {
         assetTokenId: assetTokenId,
         sellerAccountId: sellerAccountId,
@@ -209,7 +245,7 @@ exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hedera
 
       // 1. Setup Client
       const client = Client.forTestnet();
-      client.setOperator(sellerAccountId, PrivateKey.fromStringECDSA(sellerPrivateKey));
+      client.setOperator(sellerAccountId, sellerPrivateKeyObj);
 
       // 2. Associate Token
       const associateTx = await new TokenAssociateTransaction()
