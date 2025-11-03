@@ -24,6 +24,7 @@ import {
 } from '../hedera.js';
 
 const mintRwaViaUssdUrl = "https://mintrwaviaussd-cehqwvb4aq-uc.a.run.app";
+const executeNativeNftTransferUrl = "https://executenativenfttransfer-cehqwvb4aq-uc.a.run.app"; // Placeholder URL
 
 // Create the context
 export const WalletContext = createContext(null);
@@ -484,12 +485,16 @@ export const WalletProvider = ({ children }) => {
     return fundTxResponse;
   };
 
-  const confirmDelivery = async (listingId, serialNumber) => {
+  const confirmDelivery = async (listing) => {
+    const { id: listingId, serialNumber, sellerAccountId } = listing;
+
+    // 1. Set up the buyer's client
     const rawPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
     const userPrivateKey = PrivateKey.fromStringECDSA(rawPrivKey);
     const userAccountId = AccountId.fromString(accountId);
     const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
 
+    // 2. Call the smart contract to release the HBAR payment to the seller
     const confirmTx = new ContractExecuteTransaction()
       .setContractId(escrowContractAccountId)
       .setGas(1000000)
@@ -498,31 +503,32 @@ export const WalletProvider = ({ children }) => {
     const frozenConfirmTx = await confirmTx.freezeWith(userClient);
     const signedConfirmTx = await frozenConfirmTx.sign(userPrivateKey);
     const confirmTxResponse = await signedConfirmTx.execute(userClient);
-    await confirmTxResponse.getReceipt(userClient);
+    const confirmReceipt = await confirmTxResponse.getReceipt(userClient);
 
-    // Start verification polling
-    setVerifying(true);
-    const pollOwner = async () => {
-      for (let i = 0; i < 10; i++) { // Poll for up to 50 seconds
-        const owner = await getNftOwner(assetTokenId, serialNumber);
-        if (owner === accountId) {
-          return true;
-        }
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      }
-      return false;
-    };
-
-    const isOwner = await pollOwner();
-    setVerifying(false);
-
-    if (isOwner) {
-      const listingRef = doc(db, 'listings', listingId);
-      await updateDoc(listingRef, { status: 'Delivered' });
-      setFlowState("COMPLETED");
-    } else {
-      throw new Error("Failed to verify NFT ownership transfer.");
+    if (confirmReceipt.status.toString() !== 'SUCCESS') {
+        throw new Error(`Payment release failed with status: ${confirmReceipt.status.toString()}`);
     }
+
+    // 3. Call the backend to execute the native NFT transfer
+    const transferResponse = await fetch(executeNativeNftTransferUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            sellerAccountId: sellerAccountId,
+            buyerAccountId: accountId,
+            serialNumber: serialNumber,
+        }),
+    });
+
+    const transferData = await transferResponse.json();
+    if (!transferResponse.ok) {
+        throw new Error(transferData.error || 'Backend NFT transfer request failed.');
+    }
+
+    // 4. Update Firestore and local state
+    const listingRef = doc(db, 'listings', listingId);
+    await updateDoc(listingRef, { status: 'Delivered' });
+    setFlowState("COMPLETED");
   };
 
   const value = {

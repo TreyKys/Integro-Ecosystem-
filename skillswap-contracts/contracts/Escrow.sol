@@ -71,7 +71,6 @@ contract Escrow {
     // ------------------------------------------------------------
     function confirmDelivery(uint256 tokenId) external {
         Listing storage listing = listings[tokenId];
-        IERC721 assetToken = IERC721(assetTokenAddress);
 
         require(msg.sender == listing.buyer, "Escrow: Only the buyer can confirm delivery.");
         require(listing.state == ListingState.FUNDED, "Escrow: Escrow not funded.");
@@ -82,11 +81,11 @@ contract Escrow {
         (bool sent, ) = payable(listing.seller).call{value: listing.price}("");
         require(sent, "Escrow: Failed to send HBAR to seller.");
 
-        // Transfer NFT to buyer
-        assetToken.safeTransferFrom(listing.seller, listing.buyer, tokenId);
+        // The NFT transfer will now be handled by a backend service using a native TransferTransaction
+        // for greater reliability. This contract's job is done once the payment is released.
 
         emit SaleCompleted(tokenId, listing.seller, listing.buyer);
-        console.log("NFT %s transferred to buyer %s", tokenId, listing.buyer);
+        console.log("HBAR payment for NFT %s released to seller %s", tokenId, listing.seller);
     }
 
     // ------------------------------------------------------------

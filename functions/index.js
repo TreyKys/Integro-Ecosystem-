@@ -79,6 +79,51 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
   });
 });
 
+exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
+  cors(request, response, async () => {
+    if (request.method !== "POST") {
+      return response.status(405).send("Method Not Allowed");
+    }
+    try {
+      const { sellerAccountId, buyerAccountId, serialNumber } = request.body;
+      if (!sellerAccountId || !buyerAccountId || !serialNumber) {
+        throw new Error("Missing required fields: sellerAccountId, buyerAccountId, serialNumber.");
+      }
+
+      const adminId = hederaAdminAccountId.value();
+      const rawAdminPrivateKey = hederaAdminPrivateKey.value();
+
+      if (!rawAdminPrivateKey || !adminId) {
+        throw new Error("Admin credentials are not set as secrets.");
+      }
+
+      const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
+      const client = Client.forTestnet().setOperator(adminId, adminPrivateKey);
+
+      const transferTx = await new TransferTransaction()
+        .addNftTransfer(assetTokenId, serialNumber, sellerAccountId, buyerAccountId)
+        .freezeWith(client);
+
+      // No need to sign with adminPrivateKey again, client operator already handles it.
+      const transferTxSubmit = await transferTx.execute(client);
+      const transferRx = await transferTxSubmit.getReceipt(client);
+
+      if (transferRx.status.toString() !== 'SUCCESS') {
+        throw new Error(`NFT transfer failed with status: ${transferRx.status.toString()}`);
+      }
+
+      return response.status(200).send({
+        success: true,
+        transactionId: transferTxSubmit.transactionId.toString()
+      });
+
+    } catch (error) {
+      console.error("ERROR in executeNativeNftTransfer:", error);
+      return response.status(500).send({ error: error.message });
+    }
+  });
+});
+
 exports.mintRWAviaUSSD = onRequest({ 
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] 
 }, (request, response) => {
