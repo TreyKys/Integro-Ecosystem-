@@ -24,7 +24,7 @@ import {
 } from '../hedera.js';
 
 const mintRwaViaUssdUrl = "https://mintrwaviaussd-cehqwvb4aq-uc.a.run.app";
-const executeNativeNftTransferUrl = "https://executenativenfttransfer-cehqwvb4aq-uc.a.run.app"; // Placeholder URL
+const executeNativeNftTransferUrl = "https://executenativenfttransfer-cehqwvb4aq-uc.a.run.app";
 
 // Create the context
 export const WalletContext = createContext(null);
@@ -443,16 +443,13 @@ export const WalletProvider = ({ children }) => {
     const userAccountId = AccountId.fromString(accountId);
     const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
 
-    // Query the public 'listings' mapping directly for the given tokenId (serialNumber)
     const getPriceQuery = new ContractCallQuery()
       .setContractId(escrowContractAccountId)
       .setGas(100000)
-      // Call the mapping's getter function, which has the same name as the mapping
-      .setFunction("listings", new ContractFunctionParameters().addUint256(listing.serialNumber));
+      .setFunction("getListingPrice", new ContractFunctionParameters().addUint256(listing.serialNumber));
 
     const priceQueryResult = await getPriceQuery.execute(userClient);
-    // The price is the 3rd element (index 2) in the returned Listing struct
-    const priceInTinybarsLong = priceQueryResult.getUint256(2);
+    const priceInTinybarsLong = priceQueryResult.getUint256(0);
 
     if (priceInTinybarsLong.isZero()) {
       throw new Error("This asset is not currently listed for sale or has a price of zero.");
@@ -486,6 +483,11 @@ export const WalletProvider = ({ children }) => {
   };
 
   const confirmDelivery = async (listing) => {
+    if (!listing || typeof listing.serialNumber === 'undefined' || listing.serialNumber === null || !listing.id || !listing.sellerAccountId) {
+        console.error("confirmDelivery Error: Invalid 'listing' object provided.", listing);
+        throw new Error("Cannot confirm delivery: required asset information is missing.");
+    }
+
     const { id: listingId, serialNumber, sellerAccountId } = listing;
 
     // 1. Set up the buyer's client
@@ -498,7 +500,7 @@ export const WalletProvider = ({ children }) => {
     const confirmTx = new ContractExecuteTransaction()
       .setContractId(escrowContractAccountId)
       .setGas(1000000)
-      .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(serialNumber));
+      .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(listing.serialNumber));
 
     const frozenConfirmTx = await confirmTx.freezeWith(userClient);
     const signedConfirmTx = await frozenConfirmTx.sign(userPrivateKey);

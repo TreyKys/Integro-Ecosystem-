@@ -88,13 +88,16 @@ const MyAssets = () => {
         fetchAssets();
     }, [accountId]);
 
-    const handleConfirmDelivery = async (listingId, serialNumber) => {
-        setIsConfirming(serialNumber);
+    const handleConfirmDelivery = async (asset) => {
+        setIsConfirming(asset.serialNumber);
         try {
-            await confirmDelivery(listingId, serialNumber);
+            await confirmDelivery(asset);
+            // Re-fetch assets to reflect the change in ownership and status
             fetchAssets();
         } catch (error) {
+            // It's helpful to show the error to the user in a real app
             console.error("Failed to confirm delivery:", error);
+            alert(`Failed to confirm delivery: ${error.message}`);
         } finally {
             setIsConfirming(null);
         }
@@ -121,7 +124,7 @@ const MyAssets = () => {
                                 </div>
                                 {asset.status === 'Pending Delivery' && (
                                     <button
-                                      onClick={() => handleConfirmDelivery(asset.id, asset.serialNumber)}
+                                      onClick={() => handleConfirmDelivery(asset)}
                                       className="confirm-delivery-btn"
                                       disabled={isConfirming === asset.serialNumber}
                                     >

@@ -100,6 +100,8 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
       const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
       const client = Client.forTestnet().setOperator(adminId, adminPrivateKey);
 
+      // The assetTokenId is defined globally, but let's ensure it's explicitly available.
+      const assetTokenId = "0.0.7134449";
       const transferTx = await new TransferTransaction()
         .addNftTransfer(assetTokenId, serialNumber, sellerAccountId, buyerAccountId)
         .freezeWith(client);
