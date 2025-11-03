@@ -1,8 +1,8 @@
 // --- 1. LIVE CONTRACT AND TOKEN IDS ---
-export const escrowContractAddress = "0x2CDeA2f7bB899954D53baa8eeC9BA5D11FED7672";
+export const escrowContractAddress = "0x1e44CF4D0F88cbC58254a20eb30Ffa8C2cb6cD56";
 export const assetTokenContractAddress = "0x4670300c408d7c040715ba5f980791EfD0909B7a";
 export const assetTokenId = "0.0.7134449"; // The original, valid HTS token ID
-export const escrowContractAccountId = "0.0.7152729";
+export const escrowContractAccountId = "0.0.7182623";
 export const lendingPoolContractAddress = "0x862C9d8A540Fa5c7bAFf43d29C18eCa5100cc0e9";
 export const lendingPoolContractAccountId = "0.0.7161167";
 
