@@ -57,14 +57,27 @@ const MyAssets = () => {
             const ownedAssets = userNfts.map(nft => {
                 const metadata = decodeMetadata(nft.metadata);
                 const firestoreInfo = firestoreListings[nft.serial_number];
-                return {
+
+                // Start with mirror node data and base defaults
+                const assetData = {
                     serialNumber: nft.serial_number,
                     name: metadata.name || 'Untitled Asset',
                     description: metadata.description || 'No description.',
                     imageUrl: metadata.image || 'https://via.placeholder.com/150',
-                    status: firestoreInfo ? firestoreInfo.status : 'In Wallet',
-                    id: firestoreInfo ? firestoreInfo.id : null,
+                    status: 'In Wallet', // Default status
                 };
+
+                // If found in Firestore, overwrite and extend with Firestore data
+                if (firestoreInfo) {
+                    return {
+                        ...assetData,
+                        ...firestoreInfo, // This includes id, sellerAccountId, status, etc.
+                        name: firestoreInfo.name || assetData.name, // Prioritize Firestore name
+                        imageUrl: firestoreInfo.imageUrl || assetData.imageUrl, // Prioritize Firestore image
+                    };
+                }
+
+                return assetData;
             });
 
             // 4. Add purchased assets that are not yet transferred
