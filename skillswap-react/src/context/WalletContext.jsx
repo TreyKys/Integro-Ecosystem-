@@ -434,6 +434,9 @@ export const WalletProvider = ({ children }) => {
   }
 
   const handleBuy = async (listing) => {
+    // Ensure the buyer is associated with the token before purchasing.
+    await handleTokenAssociation();
+
     const rawPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
     const userPrivateKey = PrivateKey.fromStringECDSA(rawPrivKey);
     const userAccountId = AccountId.fromString(accountId);
@@ -451,7 +454,7 @@ export const WalletProvider = ({ children }) => {
       throw new Error("This asset is not currently listed for sale or has a price of zero.");
     }
 
-    const priceInTinybars = priceInTinybarsLong.toNumber();
+    const priceInTinybars = priceInTinybarsLong.toString();
 
     const fundTx = new ContractExecuteTransaction()
       .setContractId(escrowContractAccountId)
@@ -462,7 +465,11 @@ export const WalletProvider = ({ children }) => {
     const frozenFundTx = await fundTx.freezeWith(userClient);
     const signedFundTx = await frozenFundTx.sign(userPrivateKey);
     const fundTxResponse = await signedFundTx.execute(userClient);
-    await fundTxResponse.getReceipt(userClient);
+    const fundTxReceipt = await fundTxResponse.getReceipt(userClient);
+
+    if (fundTxReceipt.status.toString() !== 'SUCCESS') {
+      throw new Error(`Escrow funding failed with status: ${fundTxReceipt.status.toString()}`);
+    }
 
     const listingRef = doc(db, 'listings', listing.id);
     await updateDoc(listingRef, {
