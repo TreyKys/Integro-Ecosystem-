@@ -64,6 +64,7 @@ const MyAssets = () => {
                     imageUrl: metadata.image || 'https://via.placeholder.com/150',
                     status: firestoreInfo ? firestoreInfo.status : 'In Wallet',
                     id: firestoreInfo ? firestoreInfo.id : null,
+                    sellerAccountId: firestoreInfo ? firestoreInfo.sellerAccountId : null,
                 };
             });
 
@@ -73,6 +74,7 @@ const MyAssets = () => {
                 .map(listing => ({
                     ...listing, // contains name, description, imageUrl, etc. from Firestore
                     status: listing.status,
+                    sellerAccountId: listing.sellerAccountId,
                 }));
 
             setAssets([...ownedAssets, ...purchasedAssets]);
