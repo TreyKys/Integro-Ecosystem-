@@ -67,13 +67,16 @@ const USSDSimulator = () => {
             }
 
             const data = await resp.json();
-            if (!data.accountId) {
-                throw new Error("createAccount did not return accountId");
+            console.log("createAccount response:", data);
+            const accountId = data.accountId || data.account || null;
+            if (!accountId) {
+                // Defensive fallback
+                throw new Error("Account created but server did not return accountId. Check logs.");
             }
 
             const newUser = {
                 ...tempSession,
-                accountId: data.accountId,
+                accountId: accountId,
                 privateKey: privateKeyStr,
             };
 
@@ -82,7 +85,7 @@ const USSDSimulator = () => {
             localStorage.setItem("ussd-vaults", JSON.stringify(updatedUsers));
             setCurrentUserIndex(updatedUsers.length - 1);
 
-            setScreenText(`Vault for ${newUser.name} created! Account ID: ${newUser.accountId}`);
+            setScreenText(`🎉 Vault created. Account ID: ${accountId}`);
             return true;
         } catch (err) {
             console.error("USSD createVault error", err);
@@ -201,20 +204,36 @@ const USSDSimulator = () => {
                 case 'list_product_loc':
                      setScreenText('Listing product...');
                     try {
-                        const payload = {
-                            sellerAccountId: currentUser.accountId,
-                            sellerPrivateKey: currentUser.privateKey,
-                            productName: tempSession.productName,
-                            price: parseFloat(tempSession.price),
-                            description: tempSession.description,
-                            location: inputValue,
-                        };
-                        const response = await fetch(LIST_PRODUCT_URL, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-                        if(!response.ok) {
-                            const errText = await response.text();
-                            throw new Error(errText || "Failed to list product");
+                        const price = Number(tempSession.price);
+                        if (!Number.isFinite(price) || price <= 0) {
+                          setScreenText("Price must be a positive number");
+                          newMenuState = 'list_product_price';
+                          break;
                         }
-                        setScreenText('Product listed successfully!');
+
+                        const payload = {
+                          sellerAccountId: currentUser.accountId,
+                          sellerPrivateKey: currentUser.privateKey,
+                          productName: tempSession.productName,
+                          description: tempSession.description,
+                          location: inputValue,
+                          price: price
+                        };
+
+                        console.log("Calling LIST endpoint with payload:", payload);
+
+                        const resp = await fetch(LIST_PRODUCT_URL, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(payload)
+                        });
+                        const json = await resp.json();
+                        console.log("List response:", resp.status, json);
+
+                        if (!resp.ok) {
+                          throw new Error(json?.error?.message || JSON.stringify(json));
+                        }
+                        setScreenText("Listing succeeded: " + JSON.stringify(json));
                     } catch(e) {
                         setScreenText(`Error listing product: ${e.message}`);
                     }

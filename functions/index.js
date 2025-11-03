@@ -150,10 +150,48 @@ exports.mintRWAviaUSSD = onRequest({
 
 exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] }, (request, response) => {
   cors(request, response, async () => {
+    // DEBUG LOGGING: Print headers, rawBody and parsed body
+    console.log("=== listProductFromUSSD: received request ===");
+    try {
+      console.log("headers:", JSON.stringify(request.headers || {}, null, 2));
+    } catch (e) { console.log("headers log failed", e.message); }
+    try {
+      // rawBody is Buffer — log safe preview
+      const raw = request.rawBody ? request.rawBody.toString('utf8') : null;
+      console.log("rawBody (preview):", raw ? raw.slice(0, 200) : null);
+    } catch (e) { console.log("rawBody log failed", e.message); }
+    try {
+      console.log("parsed body:", JSON.stringify(request.body || {}, null, 2));
+    } catch (e) { console.log("parsed body log failed", e.message); }
+    console.log("=== end request logging ===");
     if (request.method !== "POST") {
       return response.status(405).send("Method Not Allowed");
     }
     try {
+      const body = request.body || {};
+      const required = ['sellerAccountId', 'sellerPrivateKey', 'productName', 'price'];
+      const missing = required.filter(k => body[k] === undefined || body[k] === null || body[k] === '');
+      if (missing.length) {
+        console.error("listProductFromUSSD: missing fields:", missing);
+        return response.status(400).send({
+          error: {
+            message: "Missing required fields",
+            missing
+          }
+        });
+      }
+
+      // Coerce & validate price
+      const priceParsed = Number(body.price);
+      if (!Number.isFinite(priceParsed) || priceParsed <= 0) {
+        console.error("listProductFromUSSD: invalid price:", body.price);
+        return response.status(400).send({
+          error: { message: "Invalid price: must be positive number", received: body.price }
+        });
+      }
+
+      // Replace body.price with normalized number for further logic
+      body.price = priceParsed;
       const {
         sellerAccountId,
         sellerPrivateKey,
@@ -161,7 +199,13 @@ exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hedera
         price,
         description,
         location
-      } = request.body;
+      } = body;
+
+      console.log("About to execute Hedera calls with:", {
+        assetTokenId: assetTokenId,
+        sellerAccountId: sellerAccountId,
+        listingPrice: price
+      });
 
       // 1. Setup Client
       const client = Client.forTestnet();
