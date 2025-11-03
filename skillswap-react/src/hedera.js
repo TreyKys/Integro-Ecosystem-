@@ -625,3 +625,18 @@ export const lendingPoolContractABI = [
     "type": "receive"
   }
 ];
+
+// Function to get the current owner of an NFT from the mirror node
+export const getNftOwner = async (tokenId, serialNumber) => {
+  try {
+    const response = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${tokenId}/nfts/${serialNumber}`);
+    if (!response.ok) {
+      throw new Error(`Mirror node query failed with status ${response.status}`);
+    }
+    const data = await response.json();
+    return data.account_id;
+  } catch (error) {
+    console.error("Failed to get NFT owner:", error);
+    return null;
+  }
+};

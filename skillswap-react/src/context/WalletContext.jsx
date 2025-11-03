@@ -20,6 +20,7 @@ import {
   escrowContractAccountId,
   assetTokenId,
   lendingPoolContractAccountId,
+  getNftOwner,
 } from '../hedera.js';
 
 const mintRwaViaUssdUrl = "https://mintrwaviaussd-cehqwvb4aq-uc.a.run.app";
@@ -37,6 +38,7 @@ export const WalletProvider = ({ children }) => {
   const [userProfile, setUserProfile] = useState(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [flowState, setFlowState] = useState('INITIAL');
+  const [verifying, setVerifying] = useState(false);
   const [nftSerialNumber, setNftSerialNumber] = useState(null);
 
   const fetchBalance = useCallback(async (id) => {
@@ -488,9 +490,29 @@ export const WalletProvider = ({ children }) => {
     const confirmTxResponse = await signedConfirmTx.execute(userClient);
     await confirmTxResponse.getReceipt(userClient);
 
-    const listingRef = doc(db, 'listings', listingId);
-    await updateDoc(listingRef, { status: 'Delivered' });
-    setFlowState("COMPLETED");
+    // Start verification polling
+    setVerifying(true);
+    const pollOwner = async () => {
+      for (let i = 0; i < 10; i++) { // Poll for up to 50 seconds
+        const owner = await getNftOwner(assetTokenId, serialNumber);
+        if (owner === accountId) {
+          return true;
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+      return false;
+    };
+
+    const isOwner = await pollOwner();
+    setVerifying(false);
+
+    if (isOwner) {
+      const listingRef = doc(db, 'listings', listingId);
+      await updateDoc(listingRef, { status: 'Delivered' });
+      setFlowState("COMPLETED");
+    } else {
+      throw new Error("Failed to verify NFT ownership transfer.");
+    }
   };
 
   const value = {
@@ -502,6 +524,7 @@ export const WalletProvider = ({ children }) => {
     userProfile,
     isProfileLoading,
     flowState,
+    verifying,
     nftSerialNumber,
     createVault,
     logout,

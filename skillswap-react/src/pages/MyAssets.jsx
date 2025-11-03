@@ -17,9 +17,10 @@ const decodeMetadata = (base64) => {
 };
 
 const MyAssets = () => {
-    const { accountId, confirmDelivery } = useWallet();
+    const { accountId, confirmDelivery, verifying } = useWallet();
     const [assets, setAssets] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isConfirming, setIsConfirming] = useState(null);
 
     const fetchAssets = async () => {
         if (!accountId) return;
@@ -88,12 +89,14 @@ const MyAssets = () => {
     }, [accountId]);
 
     const handleConfirmDelivery = async (listingId, serialNumber) => {
+        setIsConfirming(serialNumber);
         try {
             await confirmDelivery(listingId, serialNumber);
-            // Refresh the assets list to show the new status
             fetchAssets();
         } catch (error) {
             console.error("Failed to confirm delivery:", error);
+        } finally {
+            setIsConfirming(null);
         }
     };
 
@@ -120,9 +123,13 @@ const MyAssets = () => {
                                     <button
                                       onClick={() => handleConfirmDelivery(asset.id, asset.serialNumber)}
                                       className="confirm-delivery-btn"
+                                      disabled={isConfirming === asset.serialNumber}
                                     >
-                                        Confirm Delivery
+                                        {isConfirming === asset.serialNumber ? 'Confirming...' : 'Confirm Delivery'}
                                     </button>
+                                )}
+                                {verifying && isConfirming === asset.serialNumber && (
+                                  <p className="verifying-text">Verifying transfer on-chain...</p>
                                 )}
                             </div>
                         </div>
