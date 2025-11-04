@@ -524,7 +524,7 @@ export const WalletProvider = ({ children }) => {
 
     // 3. Set up an ADMIN client to perform the transfer (using the allowance)
     // This is secure because the seller granted an allowance to the admin account during listing.
-    const adminPrivKeyString = typeof window !== 'undefined' ? window.REACT_APP_ADMIN_PRIVATE_KEY : process.env.REACT_APP_ADMIN_PRIVATE_KEY;
+    const adminPrivKeyString = import.meta.env.VITE_ADMIN_PRIVATE_KEY;
     if (!adminPrivKeyString) {
       throw new Error("Admin private key is not configured.");
     }
