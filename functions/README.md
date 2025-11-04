@@ -16,7 +16,7 @@ firebase functions:secrets:set HEDERA_ADMIN_SUPPLY_KEY
 
 ### Deploy Command
 
-To deploy the functions, run the following command from the root of the repository:
+To deploy the functions, run the following command from the root of the repository. Firebase will automatically discover and deploy the new functions from `ussd.js` alongside the existing functions in `index.js`.
 
 ```bash
 firebase deploy --only functions
@@ -29,13 +29,13 @@ You can test the deployed functions using `curl`. Replace `REGION-PROJECT` with 
 ### Create Vault
 
 ```bash
-curl -X POST "https://REGION-PROJECT.cloudfunctions.net/createVaultViaUSSD" -H "Content-Type: application/json" -d '{}'
+curl -X POST "https://REGION-PROJECT.cloudfunctions.net/createVault_ussd" -H "Content-Type: application/json" -d '{}'
 ```
 
 ### Mint RWA (for testing purposes)
 
 ```bash
-curl -X POST "https://REGION-PROJECT.cloudfunctions.net/mintRWAviaUSSD" \
+curl -X POST "https://REGION-PROJECT.cloudfunctions.net/mintRWA_ussd" \
   -H "Content-Type: application/json" \
   -d '{"accountId":"0.0.x","assetType":"Test Asset","quality":"A","location":"Test Location"}'
 ```
@@ -43,7 +43,7 @@ curl -X POST "https://REGION-PROJECT.cloudfunctions.net/mintRWAviaUSSD" \
 ### List Product
 
 ```bash
-curl -X POST "https://REGION-PROJECT.cloudfunctions.net/listProductFromUSSD" \
+curl -X POST "https://REGION-PROJECT.cloudfunctions.net/listProduct_ussd" \
   -H "Content-Type: application/json" \
   -d '{"sellerAccountId":"0.0.x","sellerPrivateKey":"0x...","productName":"Yam","price":12.5,"description":"Grade A"}'
 ```
@@ -51,7 +51,7 @@ curl -X POST "https://REGION-PROJECT.cloudfunctions.net/listProductFromUSSD" \
 ### Fund Escrow
 
 ```bash
-curl -X POST "https://REGION-PROJECT.cloudfunctions.net/fundEscrowFromUSSD" \
+curl -X POST "https://REGION-PROJECT.cloudfunctions.net/fundEscrow_ussd" \
   -H "Content-Type: application/json" \
   -d '{"buyerAccountId":"0.0.y","buyerPrivateKey":"0x...","listingId":"0.0.7134449-1","amount":12.5}'
 ```
@@ -59,7 +59,7 @@ curl -X POST "https://REGION-PROJECT.cloudfunctions.net/fundEscrowFromUSSD" \
 ### Confirm Delivery
 
 ```bash
-curl -X POST "https://REGION-PROJECT.cloudfunctions.net/confirmDeliveryFromUSSD" \
+curl -X POST "https://REGION-PROJECT.cloudfunctions.net/confirmDelivery_ussd" \
   -H "Content-Type: application/json" \
   -d '{"buyerAccountId":"0.0.y","buyerPrivateKey":"0x...","listingId":"0.0.7134449-1"}'
 ```

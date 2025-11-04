@@ -19,29 +19,23 @@ const cors = require("cors")({ origin: true });
 const ethers = require("ethers");
 
 // Initialize Firebase Admin SDK if not already initialized
+// This check prevents re-initialization if this file is deployed alongside index.js
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
-
-
-// --- Configuration ---
-const assetTokenId = "0.0.7134449";
-const escrowContractId = "0.0.7134455"; // This needs to be confirmed from the frontend or deployment artifacts
 
 // Define secrets
 const hederaAdminAccountId = defineSecret('HEDERA_ADMIN_ACCOUNT_ID');
 const hederaAdminPrivateKey = defineSecret('HEDERA_ADMIN_PRIVATE_KEY');
 const hederaAdminSupplyKey = defineSecret('HEDERA_ADMIN_SUPPLY_KEY');
 
-// --- Helper Functions ---
+// --- Configuration (copied from index.js for isolation) ---
+const assetTokenId = "0.0.7134449";
+const escrowContractId = "0.0.7134455"; // This needs to be confirmed from the frontend or deployment artifacts
 
-/**
- * Validates that a given private key corresponds to a given EVM address.
- * @param {string} privateKeyHex - The private key as a hex string (with or without '0x').
- * @param {string} evmAddress - The EVM address to check against.
- * @returns {boolean} - True if the address matches, false otherwise.
- */
+
+// --- Helper Functions ---
 function verifyPrivateKeyMatchesEvmAddress(privateKeyHex, evmAddress) {
     try {
         const prefixedKey = privateKeyHex.startsWith('0x') ? privateKeyHex : `0x${privateKeyHex}`;
@@ -56,9 +50,9 @@ function verifyPrivateKeyMatchesEvmAddress(privateKeyHex, evmAddress) {
 
 // --- USSD Handlers ---
 
-exports.2ndcreateVaultViaUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
+exports.createVault_ussd = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {
-    console.log("createVaultViaUSSD: Received request");
+    console.log("createVault_ussd: Received request");
     console.log("Headers:", request.headers);
     console.log("Raw Body:", request.rawBody ? request.rawBody.toString('utf8').substring(0, 100) + '...' : 'N/A');
 
@@ -103,11 +97,9 @@ exports.2ndcreateVaultViaUSSD = onRequest({ secrets: [hederaAdminAccountId, hede
         const evmAddress = (new ethers.Wallet(newPrivHex0x)).address;
         console.log(`Derived EVM address: ${evmAddress}`);
 
-        // Verification step
         const isVerified = verifyPrivateKeyMatchesEvmAddress(newPrivHex, evmAddress);
         console.log(`Verification check (private key matches EVM address): ${isVerified}`);
         if(!isVerified) {
-            // This should theoretically never fail, but it's a critical sanity check.
             throw new Error("FATAL: Generated private key does not match derived EVM address.");
         }
 
@@ -118,16 +110,16 @@ exports.2ndcreateVaultViaUSSD = onRequest({ secrets: [hederaAdminAccountId, hede
         });
 
     } catch (error) {
-        console.error("FATAL ERROR in 2ndcreateVaultViaUSSD function:", error);
+        console.error("FATAL ERROR in createVault_ussd function:", error);
         const status = error.message && error.message.includes("Invalid private key format") ? 400 : 500;
         return response.status(status).send({ error: { message: error.message, details: `Transaction ID: ${error.transactionId}` } });
     }
   });
 });
 
-exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, response) => {
+exports.confirmDelivery_ussd = onRequest({ secrets: [] }, (request, response) => {
   cors(request, response, async () => {
-    console.log("confirmDeliveryFromUSSD: Received request");
+    console.log("confirmDelivery_ussd: Received request");
     console.log("Headers:", request.headers);
     console.log("Raw Body:", request.rawBody ? request.rawBody.toString('utf8').substring(0, 100) + '...' : 'N/A');
 
@@ -141,7 +133,6 @@ exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, respon
       console.log("Parsed Body:", request.body);
       const { buyerAccountId, buyerPrivateKey, listingId } = request.body;
 
-      // 1. Validation
       if (!buyerAccountId || !buyerPrivateKey || !listingId) {
         return response.status(400).send({
           error: {
@@ -160,16 +151,14 @@ exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, respon
       try {
           rawHexKey = buyerPrivateKey.startsWith('0x') ? buyerPrivateKey.substring(2) : buyerPrivateKey;
           if (rawHexKey.length !== 64) throw new Error("Invalid length");
-          PrivateKey.fromStringECDSA(rawHexKey); // Validate format
+          PrivateKey.fromStringECDSA(rawHexKey);
       } catch (e) {
           return response.status(400).send({ error: { message: "Invalid private key format for buyerPrivateKey." } });
       }
 
-      // 2. Setup Buyer Client
       const buyerHederaPrivateKey = PrivateKey.fromStringECDSA(rawHexKey);
       buyerClient = Client.forTestnet().setOperator(buyerAccountId, buyerHederaPrivateKey);
 
-      // 3. Execute Contract Call
       const confirmTx = await new ContractExecuteTransaction()
         .setContractId(escrowContractId)
         .setGas(1_000_000)
@@ -185,7 +174,6 @@ exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, respon
       }
       console.log(`Delivery confirmed successfully for listing ${listingId}.`);
 
-      // 4. Update Firestore
       await db.collection('listings').doc(listingId).update({
         state: 'DELIVERED'
       });
@@ -194,7 +182,7 @@ exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, respon
       return response.status(200).send({ success: true });
 
     } catch (error) {
-      console.error("FATAL ERROR in confirmDeliveryFromUSSD function:", error);
+      console.error("FATAL ERROR in confirmDelivery_ussd function:", error);
       const txId = error.transactionId || (buyerClient ? buyerClient.transactionId : null);
       return response.status(500).send({
         error: {
@@ -206,9 +194,9 @@ exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, respon
   });
 });
 
-exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) => {
+exports.fundEscrow_ussd = onRequest({ secrets: [] }, (request, response) => {
   cors(request, response, async () => {
-    console.log("fundEscrowFromUSSD: Received request");
+    console.log("fundEscrow_ussd: Received request");
     console.log("Headers:", request.headers);
     console.log("Raw Body:", request.rawBody ? request.rawBody.toString('utf8').substring(0, 100) + '...' : 'N/A');
 
@@ -222,7 +210,6 @@ exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) =
       console.log("Parsed Body:", request.body);
       const { buyerAccountId, buyerPrivateKey, listingId, amount } = request.body;
 
-      // 1. Validation
       if (!buyerAccountId || !buyerPrivateKey || !listingId || amount === undefined) {
         return response.status(400).send({
           error: {
@@ -241,16 +228,14 @@ exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) =
       try {
           rawHexKey = buyerPrivateKey.startsWith('0x') ? buyerPrivateKey.substring(2) : buyerPrivateKey;
           if (rawHexKey.length !== 64) throw new Error("Invalid length");
-          PrivateKey.fromStringECDSA(rawHexKey); // Validate format
+          PrivateKey.fromStringECDSA(rawHexKey);
       } catch (e) {
           return response.status(400).send({ error: { message: "Invalid private key format for buyerPrivateKey." } });
       }
 
-      // 2. Setup Buyer Client
       const buyerHederaPrivateKey = PrivateKey.fromStringECDSA(rawHexKey);
       buyerClient = Client.forTestnet().setOperator(buyerAccountId, buyerHederaPrivateKey);
 
-      // 3. Execute Contract Call
       const fundTx = await new ContractExecuteTransaction()
         .setContractId(escrowContractId)
         .setGas(1_000_000)
@@ -267,7 +252,6 @@ exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) =
       }
       console.log(`Escrow funded successfully for listing ${listingId}.`);
 
-      // 4. Update Firestore
       await db.collection('listings').doc(listingId).update({
         state: 'FUNDED',
         buyerAccountId: buyerAccountId
@@ -277,7 +261,7 @@ exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) =
       return response.status(200).send({ success: true });
 
     } catch (error) {
-      console.error("FATAL ERROR in fundEscrowFromUSSD function:", error);
+      console.error("FATAL ERROR in fundEscrow_ussd function:", error);
       const txId = error.transactionId || (buyerClient ? buyerClient.transactionId : null);
       return response.status(500).send({
         error: {
@@ -289,11 +273,11 @@ exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) =
   });
 });
 
-exports.2ndlistProductFromUSSD = onRequest({
+exports.listProduct_ussd = onRequest({
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey]
 }, (request, response) => {
   cors(request, response, async () => {
-    console.log("listProductFromUSSD: Received request");
+    console.log("listProduct_ussd: Received request");
     console.log("Headers:", request.headers);
     console.log("Raw Body:", request.rawBody ? request.rawBody.toString('utf8').substring(0, 100) + '...' : 'N/A');
 
@@ -301,13 +285,12 @@ exports.2ndlistProductFromUSSD = onRequest({
       return response.status(405).send({ error: { message: "Method Not Allowed" } });
     }
 
-    let sellerClient; // Define client here to be accessible in catch block for txId
+    let sellerClient;
 
     try {
       console.log("Parsed Body:", request.body);
       const { sellerAccountId, sellerPrivateKey, productName, price, description, location } = request.body;
 
-      // 1. Validation
       if (!sellerAccountId || !sellerPrivateKey || !productName || price === undefined) {
         return response.status(400).send({
           error: {
@@ -321,12 +304,11 @@ exports.2ndlistProductFromUSSD = onRequest({
       try {
           rawHexKey = sellerPrivateKey.startsWith('0x') ? sellerPrivateKey.substring(2) : sellerPrivateKey;
           if (rawHexKey.length !== 64) throw new Error("Invalid length");
-          PrivateKey.fromStringECDSA(rawHexKey); // Validate format
+          PrivateKey.fromStringECDSA(rawHexKey);
       } catch (e) {
           return response.status(400).send({ error: { message: "Invalid private key format for sellerPrivateKey." } });
       }
 
-      // 2. Setup Seller Client
       const sellerHederaPrivateKey = PrivateKey.fromStringECDSA(rawHexKey);
       sellerClient = Client.forTestnet().setOperator(sellerAccountId, sellerHederaPrivateKey);
 
@@ -337,7 +319,6 @@ exports.2ndlistProductFromUSSD = onRequest({
         throw new Error("Server configuration error: Admin credentials are not set.");
       }
 
-      // 3. Step 1: Associate Token
       try {
         const assocTx = await new TokenAssociateTransaction()
             .setAccountId(sellerAccountId)
@@ -355,11 +336,10 @@ exports.2ndlistProductFromUSSD = onRequest({
           if (error.message.includes("TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT")) {
               console.log("Token was already associated, continuing.");
           } else {
-              throw error; // Re-throw other errors
+              throw error;
           }
       }
 
-      // 4. Step 2: Mint a new NFT for the listing (mint-on-list)
       const adminClient = Client.forTestnet().setOperator(adminId, PrivateKey.fromStringECDSA(rawAdminPrivateKey));
       const supplyPrivateKey = PrivateKey.fromStringED25519(hederaAdminSupplyKey.value());
 
@@ -395,7 +375,6 @@ exports.2ndlistProductFromUSSD = onRequest({
 
       console.log(`Minted new NFT with serial number: ${serialNumber} for listing.`);
 
-      // 5. Step 3: Approve Escrow Contract
       const approveTx = await new AccountAllowanceApproveTransaction()
         .approveTokenNftAllowance(assetTokenId, sellerAccountId, escrowContractId, [serialNumber])
         .freezeWith(sellerClient);
@@ -408,7 +387,6 @@ exports.2ndlistProductFromUSSD = onRequest({
       }
       console.log(`NFT allowance approved for escrow contract ${escrowContractId}.`);
 
-      // 6. Step 4: List on Escrow Contract
       const priceInTinybars = Math.round(parseFloat(price) * 1e8);
       const listTx = await new ContractExecuteTransaction()
           .setContractId(escrowContractId)
@@ -427,7 +405,6 @@ exports.2ndlistProductFromUSSD = onRequest({
       }
       console.log(`Asset listed successfully on escrow contract.`);
 
-      // 7. Step 5: Save to Firestore
       const listingId = `${assetTokenId}-${serialNumber}`;
       const listingData = {
           productName,
@@ -444,11 +421,10 @@ exports.2ndlistProductFromUSSD = onRequest({
       await db.collection('listings').doc(listingId).set(listingData);
       console.log(`Listing saved to Firestore with ID: ${listingId}`);
 
-      // 8. Return Success
       return response.status(200).send({ success: true, serialNumber, listingId });
 
     } catch (error) {
-      console.error("FATAL ERROR in listProductFromUSSD function:", error);
+      console.error("FATAL ERROR in listProduct_ussd function:", error);
       const txId = error.transactionId || (sellerClient ? sellerClient.transactionId : null);
       return response.status(500).send({
         error: {
@@ -460,11 +436,11 @@ exports.2ndlistProductFromUSSD = onRequest({
   });
 });
 
-exports.2ndmintRWAviaUSSD = onRequest({
+exports.mintRWA_ussd = onRequest({
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey]
 }, (request, response) => {
   cors(request, response, async () => {
-    console.log("mintRWAviaUSSD: Received request");
+    console.log("mintRWA_ussd: Received request");
     console.log("Headers:", request.headers);
     console.log("Raw Body:", request.rawBody ? request.rawBody.toString('utf8').substring(0, 100) + '...' : 'N/A');
 
@@ -494,7 +470,7 @@ exports.2ndmintRWAviaUSSD = onRequest({
       }
 
       const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
-      const supplyPrivateKey = PrivateKey.fromStringED25519(rawSupplyKey); // As per instruction
+      const supplyPrivateKey = PrivateKey.fromStringED25519(rawSupplyKey);
 
       const client = Client.forTestnet().setOperator(adminId, adminPrivateKey);
 
@@ -528,7 +504,6 @@ exports.2ndmintRWAviaUSSD = onRequest({
         .addNftTransfer(assetTokenId, serialNumber, adminId, accountId)
         .freezeWith(client);
 
-      // The client operator automatically signs this
       const transferTxSubmit = await transferTx.execute(client);
       const transferRx = await transferTxSubmit.getReceipt(client);
 
@@ -543,7 +518,7 @@ exports.2ndmintRWAviaUSSD = onRequest({
       });
 
     } catch (error) {
-      console.error("FATAL ERROR in 2ndmintRWAviaUSSD function:", error);
+      console.error("FATAL ERROR in mintRWA_ussd function:", error);
       let statusCode = 500;
       let message = error.message;
 
