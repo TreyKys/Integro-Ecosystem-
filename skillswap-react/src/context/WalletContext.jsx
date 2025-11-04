@@ -445,13 +445,14 @@ export const WalletProvider = ({ children }) => {
     const userAccountId = AccountId.fromString(accountId);
     const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
 
-    const getPriceQuery = new ContractCallQuery()
+    const getListingQuery = new ContractCallQuery()
       .setContractId(escrowContractAccountId)
       .setGas(100000)
-      .setFunction("getListingPrice", new ContractFunctionParameters().addUint256(listing.serialNumber));
+      .setFunction("listings", new ContractFunctionParameters().addUint256(listing.serialNumber));
 
-    const priceQueryResult = await getPriceQuery.execute(userClient);
-    const priceInTinybarsLong = priceQueryResult.getUint256(0);
+    const listingInfo = await getListingQuery.execute(userClient);
+    // The price is the 3rd element (index 2) in the returned struct
+    const priceInTinybarsLong = listingInfo.getUint256(2);
 
     if (priceInTinybarsLong.isZero()) {
       throw new Error("This asset is not currently listed for sale or has a price of zero.");
