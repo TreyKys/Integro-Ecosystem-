@@ -119,17 +119,12 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
 
       // The assetTokenId is defined globally, but let's ensure it's explicitly available.
       const assetTokenId = "0.0.7134449";
-
-      // Build and freeze transfer transaction
-      const transferTxFrozen = await new TransferTransaction()
+      const transferTx = await new TransferTransaction()
         .addNftTransfer(assetTokenId, serialNumber, sellerAccountId, buyerAccountId)
         .freezeWith(client);
 
-      // Sign the frozen transaction with admin private key (explicit admin signing)
-      const signedTransferTx = await transferTxFrozen.sign(adminPrivateKey);
-
-      // Submit the signed transaction
-      const transferTxSubmit = await signedTransferTx.execute(client);
+      // No need to sign with adminPrivateKey again, client operator already handles it.
+      const transferTxSubmit = await transferTx.execute(client);
       const transferRx = await transferTxSubmit.getReceipt(client);
 
       if (transferRx.status.toString() !== 'SUCCESS') {

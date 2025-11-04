@@ -13,7 +13,8 @@ import {
   ContractFunctionParameters,
   Hbar,
   AccountBalanceQuery,
-  ContractCallQuery
+  ContractCallQuery,
+  TransferTransaction
 } from '@hashgraph/sdk';
 import { db, collection, addDoc, Timestamp, doc, getDoc, query, where, getDocs, updateDoc } from '../firebase';
 import {
@@ -280,10 +281,17 @@ export const WalletProvider = ({ children }) => {
       .approveTokenNftAllowance(nftIdObj, userAccountId, escrowContractAccountId)
       .approveTokenNftAllowance(nftIdObj, userAccountId, adminAccountId);
 
+    console.log("Granting allowances to escrow contract and admin account...");
     const frozenTx = await allowanceTx.freezeWith(userClient);
     const signedTx = await frozenTx.sign(userPrivateKey);
     const txResponse = await signedTx.execute(userClient);
-    await txResponse.getReceipt(userClient);
+
+    // Explicitly wait for the receipt to ensure the allowance is confirmed
+    const receipt = await txResponse.getReceipt(userClient);
+    if (receipt.status.toString() !== 'SUCCESS') {
+      throw new Error(`Allowance approval failed with status: ${receipt.status.toString()}`);
+    }
+    console.log("Allowances granted successfully.");
 
     const priceInWei = Hbar.from(price).toTinybars();
     const listAssetTx = new ContractExecuteTransaction()
@@ -493,44 +501,50 @@ export const WalletProvider = ({ children }) => {
 
     const { id: listingId, serialNumber, sellerAccountId } = listing;
 
-    // 1. Set up the buyer's client
-    const rawPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
-    const userPrivateKey = PrivateKey.fromStringECDSA(rawPrivKey);
-    const userAccountId = AccountId.fromString(accountId);
-    const userClient = Client.forTestnet().setOperator(userAccountId, userPrivateKey);
+    // 1. Set up the buyer's client to release funds
+    const rawBuyerPrivKey = privateKey.startsWith("0x") ? privateKey.slice(2) : privateKey;
+    const buyerPrivateKey = PrivateKey.fromStringECDSA(rawBuyerPrivKey);
+    const buyerAccountId = AccountId.fromString(accountId);
+    const buyerClient = Client.forTestnet().setOperator(buyerAccountId, buyerPrivateKey);
 
     // 2. Call the smart contract to release the HBAR payment to the seller
     const confirmTx = new ContractExecuteTransaction()
       .setContractId(escrowContractAccountId)
       .setGas(1000000)
-      .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(listing.serialNumber));
+      .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(serialNumber));
 
-    const frozenConfirmTx = await confirmTx.freezeWith(userClient);
-    const signedConfirmTx = await frozenConfirmTx.sign(userPrivateKey);
-    const confirmTxResponse = await signedConfirmTx.execute(userClient);
-    const confirmReceipt = await confirmTxResponse.getReceipt(userClient);
+    const frozenConfirmTx = await confirmTx.freezeWith(buyerClient);
+    const signedConfirmTx = await frozenConfirmTx.sign(buyerPrivateKey);
+    const confirmTxResponse = await signedConfirmTx.execute(buyerClient);
+    const confirmReceipt = await confirmTxResponse.getReceipt(buyerClient);
 
     if (confirmReceipt.status.toString() !== 'SUCCESS') {
         throw new Error(`Payment release failed with status: ${confirmReceipt.status.toString()}`);
     }
 
-    // 3. Call the backend to execute the native NFT transfer
-    const transferResponse = await fetch(executeNativeNftTransferUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            sellerAccountId: sellerAccountId,
-            buyerAccountId: accountId,
-            serialNumber: serialNumber,
-        }),
-    });
+    // 3. Set up an ADMIN client to perform the transfer (using the allowance)
+    // This is secure because the seller granted an allowance to the admin account during listing.
+    const adminPrivKeyString = typeof window !== 'undefined' ? window.REACT_APP_ADMIN_PRIVATE_KEY : process.env.REACT_APP_ADMIN_PRIVATE_KEY;
+    if (!adminPrivKeyString) {
+      throw new Error("Admin private key is not configured.");
+    }
+    const adminPrivKey = PrivateKey.fromStringECDSA(adminPrivKeyString);
+    const adminClient = Client.forTestnet().setOperator(adminAccountId, adminPrivKey);
 
-    const transferData = await transferResponse.json();
-    if (!transferResponse.ok) {
-        throw new Error(transferData.error || 'Backend NFT transfer request failed.');
+    // 4. Execute the native NFT transfer from seller to buyer
+    const transferTx = new TransferTransaction()
+      .addApprovedNftTransfer(new NftId(TokenId.fromString(assetTokenId), serialNumber), sellerAccountId, buyerAccountId)
+      .freezeWith(adminClient);
+
+    const signedTransferTx = await transferTx.sign(adminPrivKey);
+    const transferResponse = await signedTransferTx.execute(adminClient);
+    const transferReceipt = await transferResponse.getReceipt(adminClient);
+
+    if (transferReceipt.status.toString() !== 'SUCCESS') {
+        throw new Error(`NFT Transfer failed with status: ${transferReceipt.status.toString()}`);
     }
 
-    // 4. Update Firestore and local state
+    // 5. Update Firestore and local state
     const listingRef = doc(db, 'listings', listingId);
     await updateDoc(listingRef, { status: 'Delivered' });
     setFlowState("COMPLETED");
