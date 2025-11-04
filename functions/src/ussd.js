@@ -56,7 +56,7 @@ function verifyPrivateKeyMatchesEvmAddress(privateKeyHex, evmAddress) {
 
 // --- USSD Handlers ---
 
-exports.createVaultViaUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
+exports.2ndcreateVaultViaUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {
     console.log("createVaultViaUSSD: Received request");
     console.log("Headers:", request.headers);
@@ -118,14 +118,14 @@ exports.createVaultViaUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaA
         });
 
     } catch (error) {
-        console.error("FATAL ERROR in createVaultViaUSSD function:", error);
+        console.error("FATAL ERROR in 2ndcreateVaultViaUSSD function:", error);
         const status = error.message && error.message.includes("Invalid private key format") ? 400 : 500;
         return response.status(status).send({ error: { message: error.message, details: `Transaction ID: ${error.transactionId}` } });
     }
   });
 });
 
-exports.confirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, response) => {
+exports.2ndconfirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, response) => {
   cors(request, response, async () => {
     console.log("confirmDeliveryFromUSSD: Received request");
     console.log("Headers:", request.headers);
@@ -206,7 +206,7 @@ exports.confirmDeliveryFromUSSD = onRequest({ secrets: [] }, (request, response)
   });
 });
 
-exports.fundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) => {
+exports.2ndfundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) => {
   cors(request, response, async () => {
     console.log("fundEscrowFromUSSD: Received request");
     console.log("Headers:", request.headers);
@@ -289,7 +289,7 @@ exports.fundEscrowFromUSSD = onRequest({ secrets: [] }, (request, response) => {
   });
 });
 
-exports.listProductFromUSSD = onRequest({
+exports.2ndlistProductFromUSSD = onRequest({
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey]
 }, (request, response) => {
   cors(request, response, async () => {
@@ -460,7 +460,7 @@ exports.listProductFromUSSD = onRequest({
   });
 });
 
-exports.mintRWAviaUSSD = onRequest({
+exports.2ndmintRWAviaUSSD = onRequest({
   secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey]
 }, (request, response) => {
   cors(request, response, async () => {
@@ -543,7 +543,7 @@ exports.mintRWAviaUSSD = onRequest({
       });
 
     } catch (error) {
-      console.error("FATAL ERROR in mintRWAviaUSSD function:", error);
+      console.error("FATAL ERROR in 2ndmintRWAviaUSSD function:", error);
       let statusCode = 500;
       let message = error.message;
 
