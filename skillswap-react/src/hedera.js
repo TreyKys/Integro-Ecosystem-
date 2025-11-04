@@ -5,6 +5,7 @@ export const assetTokenId = "0.0.7134449"; // The original, valid HTS token ID
 export const escrowContractAccountId = "0.0.7182623";
 export const lendingPoolContractAddress = "0x862C9d8A540Fa5c7bAFf43d29C18eCa5100cc0e9";
 export const lendingPoolContractAccountId = "0.0.7161167";
+export const adminAccountId = "0.0.6928410"; // The admin account for native transfers
 
 // --- 2. CONTRACT BLUEPRINTS (ABIs) ---
 export const escrowContractABI = [

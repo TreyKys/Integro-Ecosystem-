@@ -20,6 +20,7 @@ import {
   escrowContractAccountId,
   assetTokenId,
   lendingPoolContractAccountId,
+  adminAccountId,
   getNftOwner,
 } from '../hedera.js';
 
@@ -276,7 +277,8 @@ export const WalletProvider = ({ children }) => {
     const nftIdObj = new NftId(tokenIdObj, Number(currentSerial));
 
     const allowanceTx = new AccountAllowanceApproveTransaction()
-      .approveTokenNftAllowance(nftIdObj, userAccountId, escrowContractAccountId);
+      .approveTokenNftAllowance(nftIdObj, userAccountId, escrowContractAccountId)
+      .approveTokenNftAllowance(nftIdObj, userAccountId, adminAccountId);
 
     const frozenTx = await allowanceTx.freezeWith(userClient);
     const signedTx = await frozenTx.sign(userPrivateKey);
