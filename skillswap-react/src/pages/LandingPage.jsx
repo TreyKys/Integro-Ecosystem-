@@ -68,9 +68,14 @@ const LandingPage = () => {
         </header>
         <div className="lp-hero-content">
           <h1>AFRICA'S INFORMAL ECONOMY RUNS ON TRUST - BUT TRUST IS FRAGILE</h1>
-          <button onClick={handleCreateVault} className="lp-cta-button" disabled={isProcessing}>
-            {isProcessing ? 'Creating Vault...' : 'Create Your Secure Vault'}
-          </button>
+          <div className="lp-cta-buttons">
+            <button onClick={handleCreateVault} className="lp-cta-button" disabled={isProcessing}>
+              {isProcessing ? 'Creating Vault...' : 'Create Your Secure Vault'}
+            </button>
+            <button onClick={() => navigate('/ussd-demo')} className="lp-cta-button secondary">
+              USSD Demo
+            </button>
+          </div>
           {status && <p className="status-message">{status}</p>}
         </div>
       </section>
