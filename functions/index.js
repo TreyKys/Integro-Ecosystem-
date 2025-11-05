@@ -101,202 +101,6 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
   });
 });
 
-exports.fundEscrowFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
-    cors(request, response, async () => {
-      if (request.method !== "POST") {
-        return response.status(405).send("Method Not Allowed");
-      }
-
-      try {
-        const { buyerAccountId, buyerPrivateKey, listingId, amount } = request.body;
-        if (!buyerAccountId || !buyerPrivateKey || !listingId || !amount) {
-          return response.status(400).send({ error: "Missing required fields." });
-        }
-
-        const db = admin.firestore();
-        const listingRef = db.collection("listings").doc(listingId);
-        const listingDoc = await listingRef.get();
-
-        if (!listingDoc.exists) {
-          return response.status(404).send({ error: "Listing not found." });
-        }
-
-        const listingData = listingDoc.data();
-        const priceInTinybars = Hbar.from(amount).toTinybars();
-
-        // Set up the buyer's client
-        const rawBuyerPrivKey = buyerPrivateKey.startsWith("0x") ? buyerPrivateKey.slice(2) : buyerPrivateKey;
-        const userPrivateKey = PrivateKey.fromStringECDSA(rawBuyerPrivKey);
-        const client = Client.forTestnet().setOperator(buyerAccountId, userPrivateKey);
-
-        // Fund the escrow contract
-        const fundTx = await new ContractExecuteTransaction()
-          .setContractId(escrowContractId)
-          .setGas(1000000)
-          .setPayableAmount(Hbar.fromTinybars(priceInTinybars))
-          .setFunction("fundEscrow", new ContractFunctionParameters().addUint256(listingData.serialNumber))
-          .freezeWith(client);
-
-        const signedFundTx = await fundTx.sign(userPrivateKey);
-        const fundTxResponse = await signedFundTx.execute(client);
-        const fundTxReceipt = await fundTxResponse.getReceipt(client);
-
-        if (fundTxReceipt.status.toString() !== 'SUCCESS') {
-          throw new Error(`Escrow funding failed with status: ${fundTxReceipt.status.toString()}`);
-        }
-
-        // Update the listing status in Firestore
-        await listingRef.update({
-          status: 'Pending Delivery',
-          buyerAccountId: buyerAccountId
-        });
-
-        console.log(`SUCCESS: Escrow funded for listing ${listingId} by account ${buyerAccountId}`);
-        return response.status(200).send({ success: true, message: "Escrow funded." });
-
-      } catch (error) {
-        console.error("ERROR in fundEscrowFromUSSD function:", error);
-        return response.status(500).send({ error: error.message });
-      }
-    });
-  });
-
-  exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] }, (request, response) => {
-    cors(request, response, async () => {
-      if (request.method !== "POST") {
-        return response.status(405).send("Method Not Allowed");
-      }
-
-      try {
-        const { sellerAccountId, sellerPrivateKey, productName, price, description, location } = request.body;
-        if (!sellerAccountId || !sellerPrivateKey || !productName || !price || !description || !location) {
-          return response.status(400).send({ error: "Missing required fields." });
-        }
-
-        const db = admin.firestore();
-
-        // Set up the seller's client
-        const rawSellerPrivKey = sellerPrivateKey.startsWith("0x") ? sellerPrivateKey.slice(2) : sellerPrivateKey;
-        const userPrivateKey = PrivateKey.fromStringECDSA(rawSellerPrivKey);
-        const client = Client.forTestnet().setOperator(sellerAccountId, userPrivateKey);
-
-        // Associate the token
-        const associateTx = await new TokenAssociateTransaction()
-          .setAccountId(sellerAccountId)
-          .setTokenIds([assetTokenContractId])
-          .freezeWith(client);
-        const associateSign = await associateTx.sign(userPrivateKey);
-        const associateSubmit = await associateSign.execute(client);
-        const associateReceipt = await associateSubmit.getReceipt(client);
-        if (associateReceipt.status.toString() !== 'SUCCESS' && associateReceipt.status.toString() !== 'TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT') {
-          throw new Error(`Token Association Failed with status: ${associateReceipt.status.toString()}`);
-        }
-
-        // Mint the NFT
-        const adminId = hederaAdminAccountId.value();
-        const rawAdminPrivateKey = hederaAdminPrivateKey.value();
-        const rawSupplyKey = hederaAdminSupplyKey.value();
-        const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
-        const supplyPrivateKey = PrivateKey.fromStringED25519(rawSupplyKey);
-        const adminClient = Client.forTestnet().setOperator(adminId, adminPrivateKey);
-
-        const mintTx = await new TokenMintTransaction()
-          .setTokenId(assetTokenContractId)
-          .setMetadata([Buffer.from(description)])
-          .freezeWith(adminClient);
-        const signedMintTx = await mintTx.sign(supplyPrivateKey);
-        const mintTxSubmit = await signedMintTx.execute(adminClient);
-        const mintRx = await mintTxSubmit.getReceipt(adminClient);
-        const serialNumber = Number(mintRx.serials[0].toString());
-
-        const transferTx = await new TransferTransaction()
-          .addNftTransfer(assetTokenContractId, serialNumber, adminId, sellerAccountId)
-          .freezeWith(adminClient)
-          .execute(adminClient);
-        await transferTx.getReceipt(adminClient);
-
-        // List the asset
-        const priceInWei = Hbar.from(price).toTinybars();
-        const listAssetTx = new ContractExecuteTransaction()
-          .setContractId(escrowContractId)
-          .setGas(1000000)
-          .setFunction("listAsset", new ContractFunctionParameters()
-            .addUint256(serialNumber)
-            .addUint256(priceInWei)
-          );
-
-        const frozenListTx = await listAssetTx.freezeWith(client);
-        const signedListTx = await frozenListTx.sign(userPrivateKey);
-        await signedListTx.execute(client);
-
-        // Save to Firestore
-        await db.collection("listings").add({
-          productName,
-          price,
-          description,
-          location,
-          sellerAccountId,
-          serialNumber,
-          status: 'Listed',
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        return response.status(200).send({ success: true, message: "Product listed successfully." });
-
-      } catch (error) {
-        console.error("ERROR in listProductFromUSSD function:", error);
-        return response.status(500).send({ error: error.message });
-      }
-    });
-  });
-
-  exports.confirmDeliveryFromUSSD = onRequest((request, response) => {
-    cors(request, response, async () => {
-      if (request.method !== "POST") {
-        return response.status(405).send("Method Not Allowed");
-      }
-
-      try {
-        const { buyerAccountId, buyerPrivateKey, listingId } = request.body;
-        if (!buyerAccountId || !buyerPrivateKey || !listingId) {
-          return response.status(400).send({ error: "Missing required fields." });
-        }
-
-        const db = admin.firestore();
-        const listingRef = db.collection("listings").doc(listingId);
-        const listingDoc = await listingRef.get();
-
-        if (!listingDoc.exists) {
-          return response.status(404).send({ error: "Listing not found." });
-        }
-
-        const listingData = listingDoc.data();
-        const { serialNumber, sellerAccountId } = listingData;
-
-        const rawBuyerPrivKey = buyerPrivateKey.startsWith("0x") ? buyerPrivateKey.slice(2) : buyerPrivateKey;
-        const userPrivateKey = PrivateKey.fromStringECDSA(rawBuyerPrivKey);
-        const client = Client.forTestnet().setOperator(buyerAccountId, userPrivateKey);
-
-        const confirmTx = new ContractExecuteTransaction()
-          .setContractId(escrowContractId)
-          .setGas(1000000)
-          .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(serialNumber));
-
-        const frozenConfirmTx = await confirmTx.freezeWith(client);
-        const signedConfirmTx = await frozenConfirmTx.sign(userPrivateKey);
-        await signedConfirmTx.execute(client);
-
-        await listingRef.update({ status: 'Delivered' });
-
-        return response.status(200).send({ success: true, message: "Delivery confirmed." });
-
-      } catch (error) {
-        console.error("ERROR in confirmDeliveryFromUSSD function:", error);
-        return response.status(500).send({ error: error.message });
-      }
-    });
-  });
-
 exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -536,3 +340,200 @@ exports.setUserProfile = onRequest((request, response) => {
     }
   });
 });
+
+exports.fundEscrowFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
+    console.log("--- CANARY LOG: fundEscrowFromUSSD v2 ---");
+    cors(request, response, async () => {
+      if (request.method !== "POST") {
+        return response.status(405).send("Method Not Allowed");
+      }
+
+      try {
+        const { buyerAccountId, buyerPrivateKey, listingId, amount } = request.body;
+        if (!buyerAccountId || !buyerPrivateKey || !listingId || !amount) {
+          return response.status(400).send({ error: "Missing required fields." });
+        }
+
+        const db = admin.firestore();
+        const listingRef = db.collection("listings").doc(listingId);
+        const listingDoc = await listingRef.get();
+
+        if (!listingDoc.exists) {
+          return response.status(404).send({ error: "Listing not found." });
+        }
+
+        const listingData = listingDoc.data();
+        const priceInTinybars = Hbar.from(amount).toTinybars();
+
+        // Set up the buyer's client
+        const rawBuyerPrivKey = buyerPrivateKey.startsWith("0x") ? buyerPrivateKey.slice(2) : buyerPrivateKey;
+        const userPrivateKey = PrivateKey.fromStringECDSA(rawBuyerPrivKey);
+        const client = Client.forTestnet().setOperator(buyerAccountId, userPrivateKey);
+
+        // Fund the escrow contract
+        const fundTx = await new ContractExecuteTransaction()
+          .setContractId(escrowContractId)
+          .setGas(1000000)
+          .setPayableAmount(Hbar.fromTinybars(priceInTinybars))
+          .setFunction("fundEscrow", new ContractFunctionParameters().addUint256(listingData.serialNumber))
+          .freezeWith(client);
+
+        const signedFundTx = await fundTx.sign(userPrivateKey);
+        const fundTxResponse = await signedFundTx.execute(client);
+        const fundTxReceipt = await fundTxResponse.getReceipt(client);
+
+        if (fundTxReceipt.status.toString() !== 'SUCCESS') {
+          throw new Error(`Escrow funding failed with status: ${fundTxReceipt.status.toString()}`);
+        }
+
+        // Update the listing status in Firestore
+        await listingRef.update({
+          status: 'Pending Delivery',
+          buyerAccountId: buyerAccountId
+        });
+
+        console.log(`SUCCESS: Escrow funded for listing ${listingId} by account ${buyerAccountId}`);
+        return response.status(200).send({ success: true, message: "Escrow funded." });
+
+      } catch (error) {
+        console.error("ERROR in fundEscrowFromUSSD function:", error);
+        return response.status(500).send({ error: error.message });
+      }
+    });
+  });
+
+  exports.listProductFromUSSD = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] }, (request, response) => {
+    cors(request, response, async () => {
+      if (request.method !== "POST") {
+        return response.status(405).send("Method Not Allowed");
+      }
+
+      try {
+        const { sellerAccountId, sellerPrivateKey, productName, price, description, location } = request.body;
+        if (!sellerAccountId || !sellerPrivateKey || !productName || !price || !description || !location) {
+          return response.status(400).send({ error: "Missing required fields." });
+        }
+
+        const db = admin.firestore();
+
+        // Set up the seller's client
+        const rawSellerPrivKey = sellerPrivateKey.startsWith("0x") ? sellerPrivateKey.slice(2) : sellerPrivateKey;
+        const userPrivateKey = PrivateKey.fromStringECDSA(rawSellerPrivKey);
+        const client = Client.forTestnet().setOperator(sellerAccountId, userPrivateKey);
+
+        // Associate the token
+        const associateTx = await new TokenAssociateTransaction()
+          .setAccountId(sellerAccountId)
+          .setTokenIds([assetTokenContractId])
+          .freezeWith(client);
+        const associateSign = await associateTx.sign(userPrivateKey);
+        const associateSubmit = await associateSign.execute(client);
+        const associateReceipt = await associateSubmit.getReceipt(client);
+        if (associateReceipt.status.toString() !== 'SUCCESS' && associateReceipt.status.toString() !== 'TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT') {
+          throw new Error(`Token Association Failed with status: ${associateReceipt.status.toString()}`);
+        }
+
+        // Mint the NFT
+        const adminId = hederaAdminAccountId.value();
+        const rawAdminPrivateKey = hederaAdminPrivateKey.value();
+        const rawSupplyKey = hederaAdminSupplyKey.value();
+        const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
+        const supplyPrivateKey = PrivateKey.fromStringED25519(rawSupplyKey);
+        const adminClient = Client.forTestnet().setOperator(adminId, adminPrivateKey);
+
+        const mintTx = await new TokenMintTransaction()
+          .setTokenId(assetTokenContractId)
+          .setMetadata([Buffer.from(description)])
+          .freezeWith(adminClient);
+        const signedMintTx = await mintTx.sign(supplyPrivateKey);
+        const mintTxSubmit = await signedMintTx.execute(adminClient);
+        const mintRx = await mintTxSubmit.getReceipt(adminClient);
+        const serialNumber = Number(mintRx.serials[0].toString());
+
+        const transferTx = await new TransferTransaction()
+          .addNftTransfer(assetTokenContractId, serialNumber, adminId, sellerAccountId)
+          .freezeWith(adminClient)
+          .execute(adminClient);
+        await transferTx.getReceipt(adminClient);
+
+        // List the asset
+        const priceInWei = Hbar.from(price).toTinybars();
+        const listAssetTx = new ContractExecuteTransaction()
+          .setContractId(escrowContractId)
+          .setGas(1000000)
+          .setFunction("listAsset", new ContractFunctionParameters()
+            .addUint256(serialNumber)
+            .addUint256(priceInWei)
+          );
+
+        const frozenListTx = await listAssetTx.freezeWith(client);
+        const signedListTx = await frozenListTx.sign(userPrivateKey);
+        await signedListTx.execute(client);
+
+        // Save to Firestore
+        await db.collection("listings").add({
+          productName,
+          price,
+          description,
+          location,
+          sellerAccountId,
+          serialNumber,
+          status: 'Listed',
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return response.status(200).send({ success: true, message: "Product listed successfully." });
+
+      } catch (error) {
+        console.error("ERROR in listProductFromUSSD function:", error);
+        return response.status(500).send({ error: error.message });
+      }
+    });
+  });
+
+  exports.confirmDeliveryFromUSSD = onRequest((request, response) => {
+    cors(request, response, async () => {
+      if (request.method !== "POST") {
+        return response.status(405).send("Method Not Allowed");
+      }
+
+      try {
+        const { buyerAccountId, buyerPrivateKey, listingId } = request.body;
+        if (!buyerAccountId || !buyerPrivateKey || !listingId) {
+          return response.status(400).send({ error: "Missing required fields." });
+        }
+
+        const db = admin.firestore();
+        const listingRef = db.collection("listings").doc(listingId);
+        const listingDoc = await listingRef.get();
+
+        if (!listingDoc.exists) {
+          return response.status(404).send({ error: "Listing not found." });
+        }
+
+        const listingData = listingDoc.data();
+        const { serialNumber, sellerAccountId } = listingData;
+
+        const rawBuyerPrivKey = buyerPrivateKey.startsWith("0x") ? buyerPrivateKey.slice(2) : buyerPrivateKey;
+        const userPrivateKey = PrivateKey.fromStringECDSA(rawBuyerPrivKey);
+        const client = Client.forTestnet().setOperator(buyerAccountId, userPrivateKey);
+
+        const confirmTx = new ContractExecuteTransaction()
+          .setContractId(escrowContractId)
+          .setGas(1000000)
+          .setFunction("confirmDelivery", new ContractFunctionParameters().addUint256(serialNumber));
+
+        const frozenConfirmTx = await confirmTx.freezeWith(client);
+        const signedConfirmTx = await frozenConfirmTx.sign(userPrivateKey);
+        await signedConfirmTx.execute(client);
+
+        await listingRef.update({ status: 'Delivered' });
+
+        return response.status(200).send({ success: true, message: "Delivery confirmed." });
+
+      } catch (error) {
+        console.error("ERROR in confirmDeliveryFromUSSD function:", error);
+        return response.status(500).send({ error: error.message });
+      }
+    });
+  });
