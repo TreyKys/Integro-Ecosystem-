@@ -101,30 +101,100 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
     if (request.method !== "POST") {
       return response.status(405).send("Method Not Allowed");
     }
+
     try {
-      const { sellerAccountId, buyerAccountId, serialNumber } = request.body;
-      if (!sellerAccountId || !buyerAccountId || !serialNumber) {
+      const { sellerAccountId, buyerAccountId, serialNumber, sellerPrivateKey } = request.body;
+      if (!sellerAccountId || !buyerAccountId || (serialNumber === undefined || serialNumber === null)) {
         throw new Error("Missing required fields: sellerAccountId, buyerAccountId, serialNumber.");
       }
 
       const adminId = hederaAdminAccountId.value();
       const rawAdminPrivateKey = hederaAdminPrivateKey.value();
-
       if (!rawAdminPrivateKey || !adminId) {
         throw new Error("Admin credentials are not set as secrets.");
       }
-
       const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
       const client = Client.forTestnet().setOperator(adminId, adminPrivateKey);
 
-      // The assetTokenId is defined globally, but let's ensure it's explicitly available.
-      const assetTokenId = "0.0.7134449";
-      const transferTx = await new TransferTransaction()
-        .addNftTransfer(assetTokenId, serialNumber, sellerAccountId, buyerAccountId)
+      const assetTokenId = "0.0.7134449"; // keep consistent with your config
+
+      // If sellerPrivateKey is supplied, attempt to create an allowance so admin can transfer the seller's NFT.
+      if (sellerPrivateKey) {
+        try {
+          // Normalize seller key and construct PrivateKey object
+          let sellerKeyInput = sellerPrivateKey;
+          if (typeof sellerKeyInput !== 'string') {
+            throw new Error("sellerPrivateKey must be a string.");
+          }
+          if (sellerKeyInput.startsWith('0x')) sellerKeyInput = sellerKeyInput.slice(2);
+
+          let sellerPrivateKeyObj;
+          try {
+            // prefer ECDSA parse for hex keys
+            sellerPrivateKeyObj = PrivateKey.fromStringECDSA(sellerKeyInput);
+          } catch (errECDSA) {
+            // fallback: try generic parsing (could be DER / other)
+            try {
+              sellerPrivateKeyObj = PrivateKey.fromString(sellerPrivateKey);
+            } catch (errGeneric) {
+              throw new Error("Failed to parse sellerPrivateKey (not valid ECDSA hex or recognized DER/format).");
+            }
+          }
+
+          // Build a client with seller as operator so seller can sign the allowance
+          const sellerClient = Client.forTestnet().setOperator(sellerAccountId, sellerPrivateKeyObj);
+
+          // Approve the admin (spender) for the specific serial number
+          const approveTx = await new AccountAllowanceApproveTransaction()
+            .approveTokenNftAllowance(assetTokenId, sellerAccountId, adminId, [Number(serialNumber)])
+            .freezeWith(sellerClient);
+
+          // Sign with the seller's private key and submit
+          const signedApprove = await approveTx.sign(sellerPrivateKeyObj);
+          const approveSubmit = await signedApprove.execute(sellerClient);
+          const approveReceipt = await approveSubmit.getReceipt(sellerClient);
+
+          console.log(`Allowance receipt status: ${approveReceipt.status.toString()}`);
+          // If the receipt status is SUCCESS, proceed. If it returned some other status,
+          // we'll log and continue — the admin transfer may still work if allowance is already set.
+        } catch (allowErr) {
+          // If error indicates allowance already present, ignore and continue.
+          // Use string checks because exact SDK error codes vary.
+          const msg = String(allowErr && allowErr.message ? allowErr.message : allowErr);
+          console.warn("Allowance step failed:", msg);
+
+          // tolerable messages (examples) - ignore and continue
+          const tolerantPatterns = [
+            "ALREADY", // generic
+            "already approved",
+            "TOKEN_ALREADY_APPROVED",
+            "ALREADY_EXISTS",
+            "ACCOUNT_ALREADY_APPROVED"
+          ];
+          const isTolerable = tolerantPatterns.some(p => msg.toLowerCase().includes(p.toLowerCase()));
+
+          if (!isTolerable) {
+            // Non-tolerable error during allowance creation — return a clear error
+            console.error("Non-tolerable allowance error:", allowErr);
+            return response.status(500).send({ error: `Failed to create allowance: ${msg}` });
+          } else {
+            console.log("Allowance likely already present — continuing to transfer.");
+          }
+        }
+      } else {
+        console.log("No sellerPrivateKey provided — attempting admin-signed transfer (requires pre-approved allowance).");
+      }
+
+      // Build & freeze transfer transaction (signed and submitted by admin)
+      const transferTxFrozen = await new TransferTransaction()
+        .addNftTransfer(assetTokenId, Number(serialNumber), sellerAccountId, buyerAccountId)
         .freezeWith(client);
 
-      // No need to sign with adminPrivateKey again, client operator already handles it.
-      const transferTxSubmit = await transferTx.execute(client);
+      // Sign with admin (explicit)
+      const signedTransferTx = await transferTxFrozen.sign(adminPrivateKey);
+
+      // Submit the transfer
+      const transferTxSubmit = await signedTransferTx.execute(client);
       const transferRx = await transferTxSubmit.getReceipt(client);
 
       if (transferRx.status.toString() !== 'SUCCESS') {
@@ -138,7 +208,8 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
 
     } catch (error) {
       console.error("ERROR in executeNativeNftTransfer:", error);
-      return response.status(500).send({ error: error.message });
+      // Prefer to return structured JSON with message
+      return response.status(500).send({ error: String(error.message || error) });
     }
   });
 });
@@ -216,8 +287,8 @@ exports.mintRWAviaUSSD = onRequest({
           hasSupplyKey: !!hederaAdminSupplyKey.value(),
           tokenId: assetTokenContractId
         });
-        return response.status(400).send({
-          error: "Invalid signature. Check that supply key matches the token's supply key and all keys are correct."
+        return response.status(400).send({ 
+          error: "Invalid signature. Check that supply key matches the token's supply key and all keys are correct." 
         });
       }
       if (error.message && error.message.includes("INVALID_TOKEN_ID")) {
