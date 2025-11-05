@@ -25,7 +25,6 @@ function App() {
     <Router>
       <Routes>
         {/* Public routes that DON'T need the wallet */}
-        <Route path="/ussd-simulator" element={<USSDSimulator />} />
         <Route path="/ussd-demo" element={<UssdDemoPage />} />
 
         {/* Routes that DO need the wallet */}
@@ -64,6 +63,7 @@ const ProtectedRoutes = () => {
   return (
     <Layout>
       <Routes>
+        <Route path="/ussd-simulator" element={<USSDSimulator />} />
         <Route path="/marketplace" element={<Marketplace />} />
         <Route path="/create-listing" element={<CreateListing />} />
         <Route path="/my-assets" element={<MyAssets />} />
