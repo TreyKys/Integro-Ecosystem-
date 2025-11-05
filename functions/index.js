@@ -188,7 +188,6 @@ exports.setUserProfile = onCall(async (request) => {
       return { success: true, message: "Profile saved." };
 
     } catch (error) {
-    } catch (error) {
       console.error("ERROR in setUserProfile function:", error);
       throw new functions.https.HttpsError('internal', error.message, error);
     }
