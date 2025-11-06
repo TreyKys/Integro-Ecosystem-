@@ -5,7 +5,7 @@ Key Project Links
  * Live Web App (TRL 4-6 Demo): https://integro-hed.netlify.app
  * Demo Video (Required): [https://youtube.com/shorts/uRq0YBxHz3c?si=EzFi-5K9EeIgQ6Xj]
  * Pitch Deck (Required): [https://docs.google.com/presentation/d/1odNrYgbW6caQov2oztkxDawTvbzmURmCN2XT4r5bkGI/edit?usp=drivesdk]
- * Hedera Certification (Required): View our On-Chain Certification NFT
+ * Hedera Certification (Required): View our On-Chain Certification NFT -https://postimg.cc/JDdcP03P
 (Note: As per submission guidelines, the account Hackathon@hashgraph-association.com has been invited as a collaborator to this repository.)
 1. Our Vision: Integrity & Growth
 Our mission is to integrate Africa's fragmented, $3 trillion informal economy into a single, whole ecosystem. We do this by fostering two things:
