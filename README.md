@@ -77,7 +77,7 @@ graph TD
     UserAccount -- Interacts with --> Escrow
 ```
 🔐 A Note on Private Keys (Our Non-Custodial Design)
-You will notice that our createVault_ussd function returns a newly generated private key to the client-side. This is a deliberate and critical architectural choice for this hackathon prototype.
+You will notice that our createAccount function returns a newly generated private key to the client-side. This is a deliberate and critical architectural choice for this hackathon prototype.
  * The Goal: Our project is demonstrating a true, non-custodial "seedless wallet" flow. We empower the user ("Tunde" or "Damola") to have full ownership of their account.
  * The "Simulator" Trade-off: For a user to sign their own transactions (like fundEscrow_ussd or confirmDelivery_ussd), their client must have access to their private key. In this React prototype, the React state acts as a simulation of a mobile device's Secure Enclave.
  * Production vs. Prototype: In a production-grade mobile app, this private key would be stored immediately in the native, encrypted keychain. Our prototype proves this non-custodial architecture is 100% viable with Hedera.
@@ -172,10 +172,7 @@ All contracts and tokens are deployed on the Hedera Testnet.
 *   **Firebase Function URLs:** (Note: These URLs are specific to your Firebase project deployment.)
     *   `createAccount`: `https://<region>-<project-id>.cloudfunctions.net/createAccount`
     *   `mintRWAviaUSSD`: `https://<region>-<project-id>.cloudfunctions.net/mintRWAviaUSSD`
-    *   `listProductFromUSSD`: `https://<region>-<project-id>.cloudfunctions.net/listProductFromUSSD`
-    *   `fundEscrowFromUSSD`: `https://<region>-<project-id>.cloudfunctions.net/fundEscrowFromUSSD`
-    *   `confirmDeliveryFromUSSD`: `https://<region>-<project-id>.cloudfunctions.net/confirmDeliveryFromUSSD`
-    *   `releaseEscrowFunds`: `https://<region>-<project-id>.cloudfunctions.net/releaseEscrowFunds`
+    *   `executeNativeNftTransfer`: `https://<region>-<project-id>.cloudfunctions.net/executeNativeNftTransfer
     *   `setUserProfile`: `https://<region>-<project-id>.cloudfunctions.net/setUserProfile`
 
 8. Our Roadmap (What's Next)
