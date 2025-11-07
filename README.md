@@ -30,7 +30,7 @@ TRL 1-3 (Ideation / Roadmap)
 4. The USSD Simulator: Vision vs. Reality
 Our "killer feature" is making Integro accessible to feature phone users via a USSD/SMS bridge.
 Our Vision for USSD
-Our backend is already built to support this. We have a full suite of USSD-ready Firebase functions (like createVault_ussd, mintRWAviaUSSD, listAsset_ussd, fundEscrow_ussd, confirmDelivery_ussd) that allow a user to perform the entire Golden Path without a web app.
+Our backend is already built to support this. We have a full suite of USSD-ready Firebase functions (like createAccount, mintRWAviaUSSD, setUserProfile and executeNativeNftTransfer) that allow a user to perform the entire Golden Path without a web app.
 Why It's Not in the Demo
 We were 100% committed to demoing a fully stateful, multi-step, multi-user simulator. We successfully built the backend functions, but ran into major, time-consuming UI state-management bugs in the React frontend.
 Rather than demo a broken or "stuck" feature, we are presenting our 100% stable TRL-6 web app. Our backend is architecturally ready for a partnership with a telco or USSD gateway.
