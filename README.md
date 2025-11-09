@@ -3,7 +3,7 @@ Project Track: DLT for Operations
 This is the main repository for the Integro Ecosystem, our TRL 4-6 (Working Prototype) submission for the Hedera Africa Hackathon.
 Key Project Links
 * Live Web App (TRL 4-6 Demo): https://integro-hed.netlify.app
-* Demo Video (Required): https://youtube.com/shorts/uRq0YBxHz3c?si=EzFi-5K9EeIgQ6Xj
+* Demo Video (Required): https://youtu.be/g0xtMrfzN9U?si=MeBhpT89FnLRyC3m
 * Pitch Deck (Required): https://docs.google.com/presentation/d/1odNrYgbW6caQov2oztkxDawTvbzmURmCN2XT4r5bkGI/edit?usp=drivesdk
 * Hedera Certification (Required): View Certification - https://i.postimg.cc/BbJYZ1j9/205e97fd-e799-4d51-a82f-c0b09a53aa4d-1.png (image link as certification link was not found)
 (Note: As per submission guidelines, the account Hackathon@hashgraph-association.com has been invited as a collaborator and has accepted the invite.)
