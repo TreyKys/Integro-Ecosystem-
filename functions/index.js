@@ -9,13 +9,17 @@ const {
   PublicKey,
   AccountId,
   TokenMintTransaction,
-  TransferTransaction
+  TransferTransaction,
+  TopicCreateTransaction,
+  TopicMessageSubmitTransaction,
 } = require("@hashgraph/sdk");
 const cors = require("cors")({ origin: true });
 const ethers = require("ethers");
+const CryptoJS = require("crypto-js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
+const db = admin.firestore();
 
 // Define secrets
 const hederaAdminAccountId = defineSecret('HEDERA_ADMIN_ACCOUNT_ID');
@@ -83,10 +87,68 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
       const evmAddress = (new ethers.Wallet(newPrivHex0x)).address;
       console.log("createAccount: derived evmAddress (from ECDSA key):", evmAddress);
 
+      // --- DID Anchoring ---
+      const didDoc = {
+        id: "", // Blank for now, will be calculated below
+        controller: newAccountId.toString(),
+        evmAddress: evmAddress,
+        publicKeyHex: newPubKey.toStringRaw(),
+        created: new Date().toISOString()
+      };
+
+      const initialDidDocJson = JSON.stringify(didDoc);
+      const initialDidHash = CryptoJS.SHA256(initialDidDocJson).toString(CryptoJS.enc.Hex);
+      const did = `did:integro:${initialDidHash.substring(0, 16)}`;
+      didDoc.id = did;
+
+      const finalDidDocJson = JSON.stringify(didDoc);
+      const finalDidHash = CryptoJS.SHA256(finalDidDocJson).toString(CryptoJS.enc.Hex);
+
+      let topicId = process.env.HCS_DID_TOPIC_ID;
+      const configRef = db.collection('config').doc('didTopic');
+
+      if (!topicId) {
+        const doc = await configRef.get();
+        if (doc.exists) {
+          topicId = doc.data().topicId;
+        } else {
+          const createTopicTx = await new TopicCreateTransaction().execute(client);
+          const createTopicReceipt = await createTopicTx.getReceipt(client);
+          topicId = createTopicReceipt.topicId.toString();
+          await configRef.set({ topicId });
+        }
+      }
+
+      const message = finalDidDocJson.length > 1024 ? finalDidHash : finalDidDocJson;
+      const submitMessageTx = await new TopicMessageSubmitTransaction({
+        topicId,
+        message,
+      }).execute(client);
+
+      const submitMessageReceipt = await submitMessageTx.getReceipt(client);
+      const consensusTimestamp = submitMessageReceipt.consensusTimestamp;
+
+      const didAnchor = {
+        topicId,
+        transactionId: submitMessageTx.transactionId.toString(),
+        consensusTimestamp: consensusTimestamp.toString(),
+      };
+
+      await db.collection('dids').doc(did).set({
+        doc: didDoc,
+        accountId: newAccountId.toString(),
+        evmAddress: evmAddress,
+        anchored: didAnchor,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      // --- End DID Anchoring ---
+
       return response.status(200).send({
         accountId: newAccountId.toString(),
         privateKey: newPrivHex0x,
-        evmAddress: evmAddress
+        evmAddress: evmAddress,
+        did: did,
+        didAnchor: didAnchor,
       });
 
     } catch (error) {
