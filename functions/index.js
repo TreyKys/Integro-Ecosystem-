@@ -1,6 +1,8 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require('firebase-functions/params');
 const admin = require("firebase-admin");
+const cors = require("cors")({ origin: true });
+const crypto = require("crypto");
 const {
   Client,
   PrivateKey,
@@ -13,9 +15,7 @@ const {
   TopicCreateTransaction,
   TopicMessageSubmitTransaction,
 } = require("@hashgraph/sdk");
-const cors = require("cors")({ origin: true });
 const ethers = require("ethers");
-const CryptoJS = require("crypto-js");
 
 // Initialize Firebase Admin SDK
 admin.initializeApp();
@@ -47,63 +47,65 @@ function toEvmAddress(accountIdString) {
     return null;
   }
 }
-
+// Account Factory Function
 exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
       return response.status(405).send("Method Not Allowed");
     }
+
     try {
+      const db = admin.firestore();
+
+      // Admin credentials
       const adminAccountId = hederaAdminAccountId.value();
       const rawAdminPrivateKey = hederaAdminPrivateKey.value();
 
       if (!adminAccountId || !rawAdminPrivateKey) {
-        throw new Error("Admin credentials are not set as secrets in this V2 function environment.");
+        throw new Error("Admin credentials are not set as secrets.");
       }
 
       const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
 
-      const client = Client.forTestnet();
-      client.setOperator(adminAccountId, adminPrivateKey);
+      // Hedera client
+      const client = Client.forTestnet().setOperator(adminAccountId, adminPrivateKey);
 
+      // Generate new ECDSA keypair
       const newPriv = PrivateKey.generateECDSA();
       const newPrivHex0x = "0x" + newPriv.toStringRaw();
       const newPubKey = newPriv.publicKey;
 
-      console.log("createAccount: generated ECDSA privateKey (hex):", newPrivHex0x);
-
+      // Create new account
       const acctTx = new AccountCreateTransaction()
         .setKey(newPubKey)
         .setInitialBalance(new Hbar(65));
-
       const acctSubmit = await acctTx.execute(client);
       const acctReceipt = await acctSubmit.getReceipt(client);
       const newAccountId = acctReceipt.accountId;
-      if (!newAccountId) {
-        throw new Error("Failed to create account; no account id returned.");
-      }
-      console.log("createAccount: created accountId:", newAccountId.toString());
+      if (!newAccountId) throw new Error("Failed to create account; no account id returned.");
 
+      // Derive EVM address
       const evmAddress = (new ethers.Wallet(newPrivHex0x)).address;
-      console.log("createAccount: derived evmAddress (from ECDSA key):", evmAddress);
 
       // --- DID Anchoring ---
       const didDoc = {
-        id: "", // Blank for now, will be calculated below
+        id: "", // will be set below
         controller: newAccountId.toString(),
-        evmAddress: evmAddress,
+        evmAddress,
         publicKeyHex: newPubKey.toStringRaw(),
         created: new Date().toISOString()
       };
 
+      // Compute DID hash
       const initialDidDocJson = JSON.stringify(didDoc);
-      const initialDidHash = CryptoJS.SHA256(initialDidDocJson).toString(CryptoJS.enc.Hex);
+      const initialDidHash = crypto.createHash("sha256").update(initialDidDocJson).digest("hex");
       const did = `did:integro:${initialDidHash.substring(0, 16)}`;
       didDoc.id = did;
 
       const finalDidDocJson = JSON.stringify(didDoc);
-      const finalDidHash = CryptoJS.SHA256(finalDidDocJson).toString(CryptoJS.enc.Hex);
+      const finalDidHash = crypto.createHash("sha256").update(finalDidDocJson).digest("hex");
 
+      // Get HCS topic for DID anchoring
       let topicId = process.env.HCS_DID_TOPIC_ID;
       const configRef = db.collection('config').doc('didTopic');
 
@@ -119,36 +121,38 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
         }
       }
 
+      // Submit DID document to HCS
       const message = finalDidDocJson.length > 1024 ? finalDidHash : finalDidDocJson;
       const submitMessageTx = await new TopicMessageSubmitTransaction({
         topicId,
-        message,
+        message
       }).execute(client);
 
       const submitMessageReceipt = await submitMessageTx.getReceipt(client);
-      const consensusTimestamp = submitMessageReceipt.consensusTimestamp;
+      const consensusTimestamp = submitMessageReceipt?.consensusTimestamp?.toString() || null;
 
       const didAnchor = {
         topicId,
         transactionId: submitMessageTx.transactionId.toString(),
-        consensusTimestamp: consensusTimestamp.toString(),
+        consensusTimestamp
       };
 
+      // Save DID document in Firestore
       await db.collection('dids').doc(did).set({
         doc: didDoc,
         accountId: newAccountId.toString(),
-        evmAddress: evmAddress,
+        evmAddress,
         anchored: didAnchor,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      // --- End DID Anchoring ---
 
+      // Response
       return response.status(200).send({
         accountId: newAccountId.toString(),
         privateKey: newPrivHex0x,
-        evmAddress: evmAddress,
-        did: did,
-        didAnchor: didAnchor,
+        evmAddress,
+        did,
+        didAnchor
       });
 
     } catch (error) {
