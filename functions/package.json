@@ -5,7 +5,8 @@
    "crypto-js": "^4.2.0",
     "ethers": "^6.15.0",
     "firebase-functions": "^6.6.0",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.7",
+    "bcrypt": "^5.1.1"
   },
   "engines": {
     "node": "22"
