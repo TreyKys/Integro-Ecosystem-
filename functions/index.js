@@ -1,5 +1,6 @@
+// functions/index.js
 const { onRequest } = require("firebase-functions/v2/https");
-const { defineSecret } = require('firebase-functions/params');
+const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const cors = require("cors")({ origin: true });
 const crypto = require("crypto");
@@ -16,6 +17,7 @@ const {
   TopicCreateTransaction,
   TopicMessageSubmitTransaction,
   ContractExecuteTransaction,
+  AccountAllowanceApproveTransaction
 } = require("@hashgraph/sdk");
 const ethers = require("ethers");
 
@@ -26,9 +28,9 @@ const db = admin.firestore();
 // Define secrets
 const hederaAdminAccountId = defineSecret('HEDERA_ADMIN_ACCOUNT_ID');
 const hederaAdminPrivateKey = defineSecret('HEDERA_ADMIN_PRIVATE_KEY');
-const hederaAdminSupplyKey =
-  defineSecret('HEDERA_ADMIN_SUPPLY_KEY');
+const hederaAdminSupplyKey = defineSecret('HEDERA_ADMIN_SUPPLY_KEY');
 const pinSignerPrivateKey = defineSecret('PIN_SIGNER_PRIVATE_KEY');
+const pinSignerAccountId = defineSecret('PIN_SIGNER_ACCOUNT_ID');
 const adminAuthToken = defineSecret('ADMIN_AUTH_TOKEN');
 
 // --- Configuration ---
@@ -36,7 +38,7 @@ const assetTokenContractId = "0.0.7134449";
 
 // Utility: Validate EVM address (no ENS, no malformed)
 function isValidEvmAddress(address) {
-  return /^0x[a-fA-F09]{40}$/.test(address);
+  return /^0x[a-fA-F0-9]{40}$/.test(address);
 }
 
 // Utility: Convert Hedera AccountId to EVM address
@@ -45,13 +47,13 @@ function toEvmAddress(accountIdString) {
     return accountIdString;
   }
   try {
-    // The SDK returns an address WITHOUT the 0x prefix, which our validation function needs.
     return `0x${AccountId.fromString(accountIdString).toSolidityAddress()}`;
   } catch (e) {
     return null;
   }
 }
-// Account Factory Function
+
+// ---------------------- Account Factory / DID Anchoring ----------------------
 exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -59,8 +61,6 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
     }
 
     try {
-      const db = admin.firestore();
-
       // Admin credentials
       const adminAccountId = hederaAdminAccountId.value();
       const rawAdminPrivateKey = hederaAdminPrivateKey.value();
@@ -100,7 +100,7 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
         created: new Date().toISOString()
       };
 
-      // Compute DID hash
+      // Compute DID hash and id
       const initialDidDocJson = JSON.stringify(didDoc);
       const initialDidHash = crypto.createHash("sha256").update(initialDidDocJson).digest("hex");
       const did = `did:integro:${initialDidHash.substring(0, 16)}`;
@@ -125,7 +125,7 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
         }
       }
 
-      // Submit DID document to HCS
+      // Submit DID document or its hash to HCS (size guard)
       const message = finalDidDocJson.length > 1024 ? finalDidHash : finalDidDocJson;
       const submitMessageTx = await new TopicMessageSubmitTransaction({
         topicId,
@@ -150,7 +150,7 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // Response
+      // Response (do not log private keys in production)
       return response.status(200).send({
         accountId: newAccountId.toString(),
         privateKey: newPrivHex0x,
@@ -166,6 +166,7 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
   });
 });
 
+// ---------------------- Native NFT transfer (admin-assisted) ----------------------
 exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -186,7 +187,7 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
       const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
       const client = Client.forTestnet().setOperator(adminId, adminPrivateKey);
 
-      const assetTokenId = "0.0.7134449"; // keep consistent with your config
+      const assetTokenId = assetTokenContractId; // keep consistent with your config
 
       // If sellerPrivateKey is supplied, attempt to create an allowance so admin can transfer the seller's NFT.
       if (sellerPrivateKey) {
@@ -219,23 +220,17 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
             .approveTokenNftAllowance(assetTokenId, sellerAccountId, adminId, [Number(serialNumber)])
             .freezeWith(sellerClient);
 
-          // Sign with the seller's private key and submit
           const signedApprove = await approveTx.sign(sellerPrivateKeyObj);
           const approveSubmit = await signedApprove.execute(sellerClient);
           const approveReceipt = await approveSubmit.getReceipt(sellerClient);
 
           console.log(`Allowance receipt status: ${approveReceipt.status.toString()}`);
-          // If the receipt status is SUCCESS, proceed. If it returned some other status,
-          // we'll log and continue — the admin transfer may still work if allowance is already set.
         } catch (allowErr) {
-          // If error indicates allowance already present, ignore and continue.
-          // Use string checks because exact SDK error codes vary.
           const msg = String(allowErr && allowErr.message ? allowErr.message : allowErr);
           console.warn("Allowance step failed:", msg);
 
-          // tolerable messages (examples) - ignore and continue
           const tolerantPatterns = [
-            "ALREADY", // generic
+            "ALREADY",
             "already approved",
             "TOKEN_ALREADY_APPROVED",
             "ALREADY_EXISTS",
@@ -244,7 +239,6 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
           const isTolerable = tolerantPatterns.some(p => msg.toLowerCase().includes(p.toLowerCase()));
 
           if (!isTolerable) {
-            // Non-tolerable error during allowance creation — return a clear error
             console.error("Non-tolerable allowance error:", allowErr);
             return response.status(500).send({ error: `Failed to create allowance: ${msg}` });
           } else {
@@ -278,14 +272,14 @@ exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, h
 
     } catch (error) {
       console.error("ERROR in executeNativeNftTransfer:", error);
-      // Prefer to return structured JSON with message
       return response.status(500).send({ error: String(error.message || error) });
     }
   });
 });
 
-exports.mintRWAviaUSSD = onRequest({ 
-  secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] 
+// ---------------------- Mint RWA via USSD (existing working flow) ----------------------
+exports.mintRWAviaUSSD = onRequest({
+  secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey]
 }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -357,8 +351,8 @@ exports.mintRWAviaUSSD = onRequest({
           hasSupplyKey: !!hederaAdminSupplyKey.value(),
           tokenId: assetTokenContractId
         });
-        return response.status(400).send({ 
-          error: "Invalid signature. Check that supply key matches the token's supply key and all keys are correct." 
+        return response.status(400).send({
+          error: "Invalid signature. Check that supply key matches the token's supply key and all keys are correct."
         });
       }
       if (error.message && error.message.includes("INVALID_TOKEN_ID")) {
@@ -373,7 +367,7 @@ exports.mintRWAviaUSSD = onRequest({
   });
 });
 
-// --- NEW FUNCTION ---
+// ---------------------- Profile (simple) ----------------------
 exports.setUserProfile = onRequest((request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -386,7 +380,6 @@ exports.setUserProfile = onRequest((request, response) => {
         return response.status(400).send({ error: "Missing required profile fields." });
       }
 
-      const db = admin.firestore();
       const profileRef = db.collection("profiles").doc(accountId);
 
       await profileRef.set({
@@ -406,8 +399,7 @@ exports.setUserProfile = onRequest((request, response) => {
   });
 });
 
-// --- PIN Management Functions ---
-
+// ---------------------- PIN Management ----------------------
 exports.setPin = onRequest({ secrets: [] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -417,7 +409,6 @@ exports.setPin = onRequest({ secrets: [] }, (request, response) => {
     try {
       const { accountId, pin } = request.body;
 
-      // 1. Validate input
       if (!accountId || !pin) {
         return response.status(400).send({ error: "Missing accountId or pin." });
       }
@@ -425,19 +416,16 @@ exports.setPin = onRequest({ secrets: [] }, (request, response) => {
         return response.status(400).send({ error: "PIN must be a string of 4-6 digits." });
       }
 
-      // 3. Hash PIN
       const saltRounds = 12;
       const hashedPin = await bcrypt.hash(pin, saltRounds);
 
-      // 4. Store in Firestore
       const pinRef = db.collection("pins").doc(accountId);
       await pinRef.set({
         hashedPin,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true }); // Use merge to either create or update
+      }, { merge: true });
 
-      // 5. Return success
       console.log(`SUCCESS: PIN has been set/updated for account ${accountId}.`);
       return response.status(200).send({ success: true });
 
@@ -448,7 +436,8 @@ exports.setPin = onRequest({ secrets: [] }, (request, response) => {
   });
 });
 
-exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, hederaAdminAccountId] }, (request, response) => {
+// ---------------------- Sign with PIN (PPSSS) ----------------------
+exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, pinSignerAccountId] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
       return response.status(405).send("Method Not Allowed");
@@ -470,7 +459,7 @@ exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, hederaAdminAcco
 
       if (attemptsDoc.exists) {
         const data = attemptsDoc.data();
-        const recentAttempts = data.attempts.filter(ts => ts > windowStart);
+        const recentAttempts = (data.attempts || []).filter(ts => ts > windowStart);
         if (recentAttempts.length >= 5) {
           return response.status(429).send({ error: "Too many attempts. Please try again later." });
         }
@@ -493,18 +482,18 @@ exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, hederaAdminAcco
         return response.status(401).send({ error: "Invalid PIN." });
       }
 
-      // 3. Build and Sign Transaction
-      const adminAccountId = hederaAdminAccountId.value();
+      // 3. Build and Sign Transaction using the dedicated signer account
+      const signerAccId = pinSignerAccountId.value();
       const rawPinSignerPrivateKey = pinSignerPrivateKey.value();
-      if (!adminAccountId || !rawPinSignerPrivateKey) {
+      if (!signerAccId || !rawPinSignerPrivateKey) {
         throw new Error("Server signing credentials are not set as secrets.");
       }
       const signerKey = PrivateKey.fromStringED25519(rawPinSignerPrivateKey);
-      const client = Client.forTestnet().setOperator(adminAccountId, signerKey);
+      const client = Client.forTestnet().setOperator(signerAccId, signerKey);
 
       let transaction;
       switch (txType) {
-        case "fundEscrow":
+        case "fundEscrow": {
           const { escrowContractId, amountHbar } = txParams;
           transaction = new ContractExecuteTransaction()
             .setContractId(escrowContractId)
@@ -512,13 +501,15 @@ exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, hederaAdminAcco
             .setFunction("fundEscrow")
             .setPayableAmount(new Hbar(amountHbar));
           break;
-        case "confirmDelivery":
+        }
+        case "confirmDelivery": {
           const { escrowContractId: cdEscrowContractId } = txParams;
           transaction = new ContractExecuteTransaction()
             .setContractId(cdEscrowContractId)
             .setGas(100000)
             .setFunction("confirmDelivery");
           break;
+        }
         default:
           return response.status(400).send({ error: `Unsupported txType: ${txType}` });
       }
@@ -558,6 +549,7 @@ exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, hederaAdminAcco
   });
 });
 
+// ---------------------- Revoke PIN ----------------------
 exports.revokePin = onRequest({ secrets: [adminAuthToken] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
@@ -588,6 +580,7 @@ exports.revokePin = onRequest({ secrets: [adminAuthToken] }, (request, response)
   });
 });
 
+// ---------------------- Get SignLog ----------------------
 exports.getSignLog = onRequest({ secrets: [adminAuthToken] }, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "GET") {
