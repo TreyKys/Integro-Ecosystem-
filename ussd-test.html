@@ -18,7 +18,7 @@
 </head>
 <body>
   <h1>Integro — USSD Test Console</h1>
-  <p class="muted">Simulates: (A) Create account + DID anchor, (B) Set PIN, (C) Use PPSSS to sign a transaction.</p>
+  <p class="muted">Simulates: (A) Create account + DID anchor, (B) Set PIN, (C) Use PPSSS to sign a transaction, (D) USSD/Agent flows.</p>
 
   <div class="card">
     <h3>CONFIG (auto-filled)</h3>
@@ -30,6 +30,19 @@
     <input id="cfg_signWithPin" value="https://us-central1-integro-ecosystem.cloudfunctions.net/signWithPin" />
     <label>getSignLog URL</label>
     <input id="cfg_getSignLog" value="https://us-central1-integro-ecosystem.cloudfunctions.net/getSignLog" />
+    <hr/>
+    <label>createPendingListing URL</label>
+    <input id="cfg_createPendingListing" value="https://us-central1-integro-ecosystem.cloudfunctions.net/createPendingListing" />
+    <label>getListings URL</label>
+    <input id="cfg_getListings" value="https://us-central1-integro-ecosystem.cloudfunctions.net/getListings" />
+    <label>getListing URL</label>
+    <input id="cfg_getListing" value="https://us-central1-integro-ecosystem.cloudfunctions.net/getListing" />
+    <label>buyNow URL</label>
+    <input id="cfg_buyNow" value="https://us-central1-integro-ecosystem.cloudfunctions.net/buyNow" />
+    <label>confirmDelivery URL</label>
+    <input id="cfg_confirmDelivery" value="https://us-central1-integro-ecosystem.cloudfunctions.net/confirmDelivery" />
+    <label>createAgent URL</label>
+    <input id="cfg_createAgent" value="https://us-central1-integro-ecosystem.cloudfunctions.net/createAgent" />
     <div style="margin-top:8px;"><button id="saveConfigBtn">Save Config</button></div>
   </div>
 
@@ -70,6 +83,38 @@
     <pre id="logResult">No response yet.</pre>
   </div>
 
+  <div class="card">
+    <h3>Step 4 - USSD Listing Flow</h3>
+    <button id="getListingsBtn">Get Listings</button>
+    <pre id="getListingsResult">No response yet.</pre>
+    <input id="listing_seller" placeholder="Seller Account ID (e.g., 0.0.12345)" />
+    <input id="listing_title" placeholder="Title (e.g., Gigabyte)" />
+    <input id="listing_price" placeholder="Price (HBAR)" />
+    <button id="createListingBtn">Create Pending Listing</button>
+    <pre id="createListingResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Step 5 - USSD Purchase Flow</h3>
+    <input id="purchase_buyer" placeholder="Buyer Account ID (e.g., 0.0.54321)" />
+    <input id="purchase_listingId" placeholder="Listing ID (LST_...)" />
+    <button id="buyNowBtn">Buy Now</button>
+    <pre id="buyNowResult">No response yet.</pre>
+    <input id="delivery_purchaseId" placeholder="Purchase ID (PUR_...)" />
+    <input id="delivery_txId" placeholder="On-chain confirm delivery TX ID" />
+    <button id="confirmDeliveryBtn">Confirm Delivery</button>
+    <pre id="confirmDeliveryResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Step 6 - Agent Onboarding</h3>
+    <input id="agent_displayName" placeholder="Display Name" />
+    <input id="agent_role" placeholder="Role (e.g., Field Agent)" />
+    <input id="agent_accountId" placeholder="Account ID (0.0.xxxxx)" />
+    <button id="createAgentBtn">Create Agent</button>
+    <pre id="createAgentResult">No response yet.</pre>
+  </div>
+
 <script>
 const $ = id => document.getElementById(id);
 function loadConfig() {
@@ -77,7 +122,13 @@ function loadConfig() {
     createAccountUrl: $('cfg_createAccount').value,
     setPinUrl: $('cfg_setPin').value,
     signWithPinUrl: $('cfg_signWithPin').value,
-    getSignLogUrl: $('cfg_getSignLog').value
+    getSignLogUrl: $('cfg_getSignLog').value,
+    createPendingListingUrl: $('cfg_createPendingListing').value,
+    getListingsUrl: $('cfg_getListings').value,
+    getListingUrl: $('cfg_getListing').value,
+    buyNowUrl: $('cfg_buyNow').value,
+    confirmDeliveryUrl: $('cfg_confirmDelivery').value,
+    createAgentUrl: $('cfg_createAgent').value,
   };
 }
 $('saveConfigBtn').addEventListener('click', () => alert('Config saved (auto-filled defaults).'));
@@ -97,6 +148,9 @@ $('createAcctBtn').addEventListener('click', async () => {
     if (json.accountId) {
       $('pin_accountId').value = json.accountId;
       $('sign_accountId').value = json.accountId;
+      $('listing_seller').value = json.accountId;
+      $('purchase_buyer').value = json.accountId;
+      $('agent_accountId').value = json.accountId;
       sessionStorage.lastPrivateKey = json.privateKey || '';
     }
   } catch (err) {
@@ -182,6 +236,100 @@ $('getLogsBtn').addEventListener('click', async () => {
     $('logResult').textContent = 'ERROR: ' + (err.message || err);
   }
 });
+
+/* ---------- USSD Listing Flow ---------- */
+$('getListingsBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  $('getListingsResult').textContent = 'Fetching...';
+  try {
+    const resp = await fetch(cfg.getListingsUrl);
+    const json = await resp.json();
+    $('getListingsResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('getListingsResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+$('createListingBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const sellerAccountId = $('listing_seller').value.trim();
+  const title = $('listing_title').value.trim();
+  const priceHbar = $('listing_price').value.trim();
+  $('createListingResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.createPendingListingUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ sellerAccountId, title, priceHbar })
+    });
+    const json = await resp.json();
+    $('createListingResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('createListingResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+
+/* ---------- USSD Purchase Flow ---------- */
+$('buyNowBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const buyerAccountId = $('purchase_buyer').value.trim();
+  const listingId = $('purchase_listingId').value.trim();
+  $('buyNowResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.buyNowUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ buyerAccountId, listingId })
+    });
+    const json = await resp.json();
+    $('buyNowResult').textContent = JSON.stringify(json, null, 2);
+    if(json.purchase && json.purchase.purchaseId) {
+      $('delivery_purchaseId').value = json.purchase.purchaseId;
+    }
+  } catch (err) {
+    $('buyNowResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+$('confirmDeliveryBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const purchaseId = $('delivery_purchaseId').value.trim();
+  const confirmTxId = $('delivery_txId').value.trim();
+  $('confirmDeliveryResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.confirmDeliveryUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ purchaseId, confirmTxId })
+    });
+    const json = await resp.json();
+    $('confirmDeliveryResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('confirmDeliveryResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+/* ---------- Agent Onboarding ---------- */
+$('createAgentBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const displayName = $('agent_displayName').value.trim();
+  const role = $('agent_role').value.trim();
+  const accountId = $('agent_accountId').value.trim();
+  $('createAgentResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.createAgentUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ displayName, role, accountId })
+    });
+    const json = await resp.json();
+    $('createAgentResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('createAgentResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
 </script>
 </body>
 </html>

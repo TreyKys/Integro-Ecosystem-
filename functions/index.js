@@ -26,6 +26,10 @@ const ethers = require("ethers");
 admin.initializeApp();
 const db = admin.firestore();
 
+// Register new endpoints
+require('./ussd');
+require('./agent');
+
 // Define secrets
 const hederaAdminAccountId = defineSecret('HEDERA_ADMIN_ACCOUNT_ID');
 const hederaAdminPrivateKey = defineSecret('HEDERA_ADMIN_PRIVATE_KEY');
