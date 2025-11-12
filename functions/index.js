@@ -17,6 +17,7 @@ const {
   TopicCreateTransaction,
   TopicMessageSubmitTransaction,
   ContractExecuteTransaction,
+  ContractFunctionParameters,
   AccountAllowanceApproveTransaction
 } = require("@hashgraph/sdk");
 const ethers = require("ethers");
@@ -437,40 +438,39 @@ exports.setPin = onRequest({ secrets: [] }, (request, response) => {
 });
 
 // ---------------------- Sign with PIN (PPSSS) ----------------------
-exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, pinSignerAccountId] }, (request, response) => {
+exports.signWithPin = onRequest({
+  secrets: [pinSignerPrivateKey, pinSignerAccountId, hederaAdminAccountId]
+}, (request, response) => {
   cors(request, response, async () => {
     if (request.method !== "POST") {
-      return response.status(405).send("Method Not Allowed");
+      return response.status(405).send({ error: "Method Not Allowed" });
     }
 
     try {
       const { accountId, pin, txType, txParams } = request.body;
 
-      // 1. Validate input
+      // Basic input validation
       if (!accountId || !pin || !txType || !txParams) {
         return response.status(400).send({ error: "Missing required fields: accountId, pin, txType, txParams." });
       }
 
-      // 2. Rate Limiting (Simple Firestore-based)
+      // Rate limiting (15-minute window)
       const attemptsDocRef = db.collection('pinAttempts').doc(accountId);
       const attemptsDoc = await attemptsDocRef.get();
       const now = Date.now();
-      const windowStart = now - (15 * 60 * 1000); // 15 minute window
-
+      const windowStart = now - (15 * 60 * 1000); // 15 minutes
       if (attemptsDoc.exists) {
         const data = attemptsDoc.data();
-        const recentAttempts = (data.attempts || []).filter(ts => ts > windowStart);
+        const recentAttempts = Array.isArray(data.attempts) ? data.attempts.filter(ts => ts > windowStart) : [];
         if (recentAttempts.length >= 5) {
           return response.status(429).send({ error: "Too many attempts. Please try again later." });
         }
-        await attemptsDocRef.update({
-          attempts: [...recentAttempts, now]
-        });
+        await attemptsDocRef.update({ attempts: [...recentAttempts, now] });
       } else {
         await attemptsDocRef.set({ attempts: [now] });
       }
 
-      // 2. Verify PIN
+      // Verify PIN
       const pinRef = db.collection("pins").doc(accountId);
       const pinDoc = await pinRef.get();
       if (!pinDoc.exists) {
@@ -478,73 +478,102 @@ exports.signWithPin = onRequest({ secrets: [pinSignerPrivateKey, pinSignerAccoun
       }
       const { hashedPin } = pinDoc.data();
       const pinMatch = await bcrypt.compare(pin, hashedPin);
-      if (!pinMatch) {
-        return response.status(401).send({ error: "Invalid PIN." });
-      }
+      if (!pinMatch) return response.status(401).send({ error: "Invalid PIN." });
 
-      // 3. Build and Sign Transaction using the dedicated signer account
-      const signerAccId = pinSignerAccountId.value();
+      // --- Server signing credentials ---
       const rawPinSignerPrivateKey = pinSignerPrivateKey.value();
-      if (!signerAccId || !rawPinSignerPrivateKey) {
-        throw new Error("Server signing credentials are not set as secrets.");
-      }
-      const signerKey = PrivateKey.fromStringED25519(rawPinSignerPrivateKey);
-      const client = Client.forTestnet().setOperator(signerAccId, signerKey);
+      const rawPinSignerAccountId = pinSignerAccountId.value();
 
+      if (!rawPinSignerPrivateKey || !rawPinSignerAccountId) {
+        console.error("Missing PIN signer secrets:", {
+          hasPinSignerKey: !!rawPinSignerPrivateKey,
+          hasPinSignerAccountId: !!rawPinSignerAccountId
+        });
+        return response.status(500).send({ error: "Server signing credentials are not configured." });
+      }
+
+      // Build signer key and client
+      let signerKey;
+      try {
+        signerKey = PrivateKey.fromStringED25519(rawPinSignerPrivateKey);
+      } catch (err) {
+        console.error("Failed to parse PIN signer private key:", err);
+        return response.status(500).send({ error: "PIN signer private key invalid format." });
+      }
+
+      const signerAccount = rawPinSignerAccountId.toString();
+      const client = Client.forTestnet().setOperator(signerAccount, signerKey);
+
+      // Build transaction based on txType
       let transaction;
       switch (txType) {
         case "fundEscrow": {
-          const { escrowContractId, amountHbar } = txParams;
+          const { escrowContractId, tokenId, amountHbar } = txParams;
+          if (!escrowContractId || (tokenId === undefined || tokenId === null) || (amountHbar === undefined || amountHbar === null)) {
+            return response.status(400).send({ error: "fundEscrow requires escrowContractId, tokenId and amountHbar." });
+          }
+          const amt = Number(amountHbar);
+          if (Number.isNaN(amt) || amt <= 0) {
+            return response.status(400).send({ error: "Invalid amountHbar." });
+          }
+
+          const params = new ContractFunctionParameters()
+            .addUint256(Number(tokenId)); // tokenId must be numeric
+
           transaction = new ContractExecuteTransaction()
             .setContractId(escrowContractId)
-            .setGas(100000)
-            .setFunction("fundEscrow")
-            .setPayableAmount(new Hbar(amountHbar));
+            .setGas(200_000)
+            .setFunction("fundEscrow", params)
+            .setPayableAmount(new Hbar(amt));
           break;
         }
         case "confirmDelivery": {
-          const { escrowContractId: cdEscrowContractId } = txParams;
+          const { escrowContractId, tokenId } = txParams;
+          if (!escrowContractId || (tokenId === undefined || tokenId === null)) {
+            return response.status(400).send({ error: "confirmDelivery requires escrowContractId and tokenId." });
+          }
+
+          const params = new ContractFunctionParameters()
+            .addUint256(Number(tokenId));
+
           transaction = new ContractExecuteTransaction()
-            .setContractId(cdEscrowContractId)
-            .setGas(100000)
-            .setFunction("confirmDelivery");
+            .setContractId(escrowContractId)
+            .setGas(200_000)
+            .setFunction("confirmDelivery", params);
           break;
         }
         default:
           return response.status(400).send({ error: `Unsupported txType: ${txType}` });
       }
 
+      // Freeze -> sign -> execute
       const frozenTx = await transaction.freezeWith(client);
       const signedTx = await frozenTx.sign(signerKey);
       const txResponse = await signedTx.execute(client);
       const receipt = await txResponse.getReceipt(client);
 
-      // 4. Write Audit Log
+      // Audit log
       const transactionId = txResponse.transactionId.toString();
-      const logRef = db.collection("signLogs").doc(transactionId);
-      await logRef.set({
+      await db.collection("signLogs").doc(transactionId).set({
         accountId,
         txType,
         txParams,
-        signer: "server",
+        signer: signerAccount,
         transactionId,
         submittedAt: admin.firestore.FieldValue.serverTimestamp(),
         mirrorStatus: "pending",
         receiptStatus: receipt.status.toString(),
       });
 
-      // 5. Return Response
       return response.status(200).send({
         success: true,
         transactionId,
-        receiptSummary: {
-          status: receipt.status.toString(),
-        },
+        receiptSummary: { status: receipt.status.toString() }
       });
 
     } catch (error) {
-      console.error("ERROR in signWithPin function:", error);
-      return response.status(500).send({ error: "An internal error occurred." });
+      console.error("ERROR in signWithPin:", error && error.stack ? error.stack : error);
+      return response.status(500).send({ error: "An internal error occurred.", details: String(error?.message || error) });
     }
   });
 });
