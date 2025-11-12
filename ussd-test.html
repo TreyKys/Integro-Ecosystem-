@@ -30,6 +30,14 @@
     <input id="cfg_signWithPin" value="https://us-central1-integro-ecosystem.cloudfunctions.net/signWithPin" />
     <label>getSignLog URL</label>
     <input id="cfg_getSignLog" value="https://us-central1-integro-ecosystem.cloudfunctions.net/getSignLog" />
+    <label>createPendingListing URL</label>
+    <input id="cfg_createPendingListing" value="https://us-central1-integro-ecosystem.cloudfunctions.net/createPendingListing" />
+    <label>buyNow URL</label>
+    <input id="cfg_buyNow" value="https://us-central1-integro-ecosystem.cloudfunctions.net/buyNow" />
+    <label>confirmDelivery URL</label>
+    <input id="cfg_confirmDelivery" value="https://us-central1-integro-ecosystem.cloudfunctions.net/confirmDelivery" />
+    <label>createAgent URL</label>
+    <input id="cfg_createAgent" value="https://us-central1-integro-ecosystem.cloudfunctions.net/createAgent" />
     <div style="margin-top:8px;"><button id="saveConfigBtn">Save Config</button></div>
   </div>
 
@@ -70,6 +78,48 @@
     <pre id="logResult">No response yet.</pre>
   </div>
 
+  <div class="card">
+    <h3>Step 4 — Create Pending Listing</h3>
+    <input id="listing_sellerAccountId" placeholder="Seller Account ID" />
+    <input id="listing_title" placeholder="Title" />
+    <input id="listing_priceHbar" placeholder="Price (Hbar)" />
+    <textarea id="listing_assetMetadata" rows="2">{"description":"My awesome asset"}</textarea>
+    <button id="createListingBtn">Create Listing</button>
+    <pre id="createListingResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Step 5 — Buy Now</h3>
+    <input id="buy_listingId" placeholder="Listing ID" />
+    <input id="buy_buyerAccountId" placeholder="Buyer Account ID" />
+    <input id="buy_escrowContractId" placeholder="Escrow Contract ID" />
+    <input id="buy_amountHbar" placeholder="Amount (Hbar)" />
+    <button id="buyNowBtn">Buy Now</button>
+    <pre id="buyNowResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Step 6 — Confirm Delivery</h3>
+    <input id="delivery_purchaseId" placeholder="Purchase ID" />
+    <input id="delivery_serialNumber" placeholder="Serial Number" />
+    <input id="delivery_sellerPrivateKey" placeholder="Seller Private Key (optional)" />
+    <button id="confirmDeliveryBtn">Confirm Delivery</button>
+    <pre id="confirmDeliveryResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Become an Agent</h3>
+    <input id="agent-name" placeholder="Display Name" />
+    <input id="agent-accountId" placeholder="Hedera Account ID" />
+    <select id="agent-role">
+      <option value="DELIVERY_AGENT">DELIVERY_AGENT</option>
+      <option value="VERIFICATION_AGENT">VERIFICATION_AGENT</option>
+    </select>
+    <input id="agent-phone" placeholder="Phone Number" />
+    <button id="agentSignupBtn">Sign Up as Agent</button>
+    <pre id="agentSignupResult">No response yet.</pre>
+  </div>
+
 <script>
 const $ = id => document.getElementById(id);
 function loadConfig() {
@@ -77,7 +127,11 @@ function loadConfig() {
     createAccountUrl: $('cfg_createAccount').value,
     setPinUrl: $('cfg_setPin').value,
     signWithPinUrl: $('cfg_signWithPin').value,
-    getSignLogUrl: $('cfg_getSignLog').value
+    getSignLogUrl: $('cfg_getSignLog').value,
+    createPendingListingUrl: $('cfg_createPendingListing').value,
+    buyNowUrl: $('cfg_buyNow').value,
+    confirmDeliveryUrl: $('cfg_confirmDelivery').value,
+    createAgentUrl: $('cfg_createAgent').value,
   };
 }
 $('saveConfigBtn').addEventListener('click', () => alert('Config saved (auto-filled defaults).'));
@@ -180,6 +234,93 @@ $('getLogsBtn').addEventListener('click', async () => {
     $('logResult').textContent = JSON.stringify(json, null, 2);
   } catch (err) {
     $('logResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+/* ---------- Create Pending Listing ---------- */
+$('createListingBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const sellerAccountId = $('listing_sellerAccountId').value.trim();
+  const title = $('listing_title').value.trim();
+  const priceHbar = $('listing_priceHbar').value.trim();
+  let assetMetadata = {};
+  try { assetMetadata = JSON.parse($('listing_assetMetadata').value); } catch(e){ alert('assetMetadata must be valid JSON'); return; }
+  $('createListingResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.createPendingListingUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ sellerAccountId, title, priceHbar, assetMetadata })
+    });
+    const json = await resp.json();
+    $('createListingResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('createListingResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+/* ---------- Buy Now ---------- */
+$('buyNowBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const listingId = $('buy_listingId').value.trim();
+  const buyerAccountId = $('buy_buyerAccountId').value.trim();
+  const escrowContractId = $('buy_escrowContractId').value.trim();
+  const amountHbar = $('buy_amountHbar').value.trim();
+  $('buyNowResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.buyNowUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ listingId, buyerAccountId, escrowContractId, amountHbar })
+    });
+    const json = await resp.json();
+    $('buyNowResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('buyNowResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+/* ---------- Confirm Delivery ---------- */
+$('confirmDeliveryBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const purchaseId = $('delivery_purchaseId').value.trim();
+  const serialNumber = $('delivery_serialNumber').value.trim();
+  const sellerPrivateKey = $('delivery_sellerPrivateKey').value.trim();
+  $('confirmDeliveryResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.confirmDeliveryUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ purchaseId, serialNumber, sellerPrivateKey })
+    });
+    const json = await resp.json();
+    $('confirmDeliveryResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('confirmDeliveryResult').textContent = 'ERROR: ' + (err.message || err);
+  }
+});
+
+/* ---------- Agent Signup ---------- */
+$('agentSignupBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const displayName = $('agent-name').value;
+  const accountId = $('agent-accountId').value;
+  const role = $('agent-role').value;
+  const contact = { phone: $('agent-phone').value };
+  $('agentSignupResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.createAgentUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ accountId, displayName, role, contact })
+    });
+    const json = await resp.json();
+    if (!resp.ok) throw new Error(json.error || JSON.stringify(json));
+    $('agentSignupResult').textContent = JSON.stringify(json, null, 2);
+    alert('Agent created: ' + json.agentId);
+  } catch (err) {
+    $('agentSignupResult').textContent = 'ERROR: ' + (err.message || err);
+    alert('Agent registration failed: ' + (err.message || err));
   }
 });
 </script>
