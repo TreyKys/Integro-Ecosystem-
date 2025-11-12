@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Integro — USSD Test Console (Account + PPSSS)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:900px; margin:24px auto; padding:16px; color:#0f172a; }
+    h1 { margin-bottom:6px }
+    .card { border:1px solid #e6e9ee; padding:14px; border-radius:8px; margin-bottom:14px; box-shadow: 0 1px 4px rgba(13,20,34,0.03); }
+    label { display:block; margin-top:8px; font-weight:600; }
+    input, select, textarea { width:100%; padding:8px; border-radius:6px; border:1px solid #d0d7e6; box-sizing:border-box; margin-top:6px; }
+    button { margin-top:12px; padding:10px 14px; border-radius:8px; background:#0b63ff; color:white; border:0; cursor:pointer; }
+    pre { background:#0b1220; color:#e6f0ff; padding:12px; border-radius:6px; overflow:auto; max-height:280px; }
+    .muted { color:#56616f; font-size:13px; }
+    .flex { display:flex; gap:8px; }
+  </style>
+</head>
+<body>
+  <h1>Integro — USSD Test Console</h1>
+  <p class="muted">Simulates: (A) Create account + DID anchor, (B) Set PIN, (C) Use PPSSS to sign a transaction. Paste your cloud function URLs in CONFIG below.</p>
+
+  <div class="card">
+    <h3>CONFIG (edit before using)</h3>
+    <p class="muted">Replace URLs if they differ. These are the function endpoints you deployed.</p>
+    <label>createAccount URL</label>
+    <input id="cfg_createAccount" value="https://us-central1-integro-ecosystem.cloudfunctions.net/createAccount" />
+    <label>setPin URL</label>
+    <input id="cfg_setPin" value="https://us-central1-integro-ecosystem.cloudfunctions.net/setPin" />
+    <label>signWithPin URL</label>
+    <input id="cfg_signWithPin" value="https://us-central1-integro-ecosystem.cloudfunctions.net/signWithPin" />
+    <label>getSignLog URL</label>
+    <input id="cfg_getSignLog" value="https://us-central1-integro-ecosystem.cloudfunctions.net/getSignLog" />
+    <small class="muted">If any URL is different, paste the right one here and press "Save Config".</small>
+    <div style="margin-top:8px;"><button id="saveConfigBtn">Save Config</button></div>
+  </div>
+
+  <div class="card">
+    <h3>Step 1 — Create Account (simulate USSD "Register")</h3>
+    <p class="muted">Click to create a Hedera account + DID anchor. Response returns accountId, privateKey, evmAddress, did, didAnchor.</p>
+    <div class="flex">
+      <button id="createAcctBtn">Create Account</button>
+      <button id="copyLastPrivBtn">Copy last privateKey</button>
+    </div>
+    <label>Last createAccount result</label>
+    <pre id="createAcctResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Step 2 — Set PIN for an account</h3>
+    <label>accountId (from create step)</label>
+    <input id="pin_accountId" placeholder="0.0.xxxxxx" />
+    <label>PIN (4–6 digits)</label>
+    <input id="pin_value" placeholder="1234" />
+    <div class="flex">
+      <button id="setPinBtn">Set / Update PIN</button>
+      <button id="revokePinBtn">Revoke PIN (admin token required)</button>
+    </div>
+    <label>setPin result</label>
+    <pre id="setPinResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Step 3 — Use PPSSS: signWithPin (server signs on PIN confirmation)</h3>
+    <p class="muted">Choose a <strong>txType</strong> and provide txParams. This will call your server's `signWithPin` function using the PIN you set.</p>
+
+    <label>AccountId</label>
+    <input id="sign_accountId" placeholder="0.0.xxxxxx" />
+    <label>PIN</label>
+    <input id="sign_pin" placeholder="1234" />
+    <label>txType</label>
+    <select id="sign_txType">
+      <option value="confirmDelivery">confirmDelivery</option>
+      <option value="fundEscrow">fundEscrow</option>
+    </select>
+    <label>txParams (JSON)</label>
+    <textarea id="sign_txParams" rows="4">{"escrowContractId":"0.0.7152729"}</textarea>
+
+    <div style="margin-top:8px;">
+      <button id="signBtn">Submit signWithPin</button>
+      <button id="getLogsBtn">Fetch sign logs (admin token required)</button>
+    </div>
+
+    <label>signWithPin result</label>
+    <pre id="signResult">No response yet.</pre>
+    <label>getSignLog result</label>
+    <pre id="logResult">No response yet.</pre>
+  </div>
+
+  <div class="card">
+    <h3>Quick links & notes</h3>
+    <ul class="muted">
+      <li>After a successful signWithPin you'll get <code>transactionId</code>. Use HashScan or Mirror Node to inspect the transaction.</li>
+      <li>Check Firestore collections: <code>dids</code> (DID doc) and <code>signLogs</code> for server audit entries.</li>
+      <li>If your `createAccount` URL differs, paste the correct one in CONFIG & save.</li>
+    </ul>
+  </div>
+
+<script>
+/* ---------- CONFIG / helpers ---------- */
+const $ = id => document.getElementById(id);
+function loadConfig() {
+  return {
+    createAccountUrl: localStorage.cfg_createAccount || $('cfg_createAccount').value,
+    setPinUrl: localStorage.cfg_setPin || $('cfg_setPin').value,
+    signWithPinUrl: localStorage.cfg_signWithPin || $('cfg_signWithPin').value,
+    getSignLogUrl: localStorage.cfg_getSignLog || $('cfg_getSignLog').value
+  };
+}
+function saveConfigToLocal() {
+  localStorage.cfg_createAccount = $('cfg_createAccount').value;
+  localStorage.cfg_setPin = $('cfg_setPin').value;
+  localStorage.cfg_signWithPin = $('cfg_signWithPin').value;
+  localStorage.cfg_getSignLog = $('cfg_getSignLog').value;
+  alert('Config saved to localStorage.');
+}
+$('saveConfigBtn').addEventListener('click', saveConfigToLocal);
+(function init() {
+  const cfg = loadConfig();
+  $('cfg_createAccount').value = cfg.createAccountUrl;
+  $('cfg_setPin').value = cfg.setPinUrl;
+  $('cfg_signWithPin').value = cfg.signWithPinUrl;
+  $('cfg_getSignLog').value = cfg.getSignLogUrl;
+})();
+
+/* ---------- Create account ---------- */
+$('createAcctBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  $('createAcctResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.createAccountUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({})
+    });
+    const json = await resp.json();
+    $('createAcctResult').textContent = JSON.stringify(json, null, 2);
+    if (json && json.accountId) {
+      $('pin_accountId').value = json.accountId;
+      $('sign_accountId').value = json.accountId;
+      // store last privateKey in session (be careful)
+      sessionStorage.lastPrivateKey = json.privateKey || '';
+      sessionStorage.lastEvm = json.evmAddress || '';
+    }
+  } catch (err) {
+    $('createAcctResult').textContent = 'ERROR: ' + (err.message || err);
+    console.error(err);
+  }
+});
+$('copyLastPrivBtn').addEventListener('click', () => {
+  const p = sessionStorage.lastPrivateKey || '';
+  if (!p) return alert('No privateKey in session. Create an account first.');
+  navigator.clipboard.writeText(p).then(()=>alert('Private key copied to clipboard (store securely!).'));
+});
+
+/* ---------- setPin ---------- */
+$('setPinBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const accountId = $('pin_accountId').value.trim();
+  const pin = $('pin_value').value.trim();
+  if (!accountId || !pin) { alert('accountId + pin required'); return; }
+  $('setPinResult').textContent = 'Submitting...';
+  try {
+    const resp = await fetch(cfg.setPinUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ accountId, pin })
+    });
+    const json = await resp.json();
+    $('setPinResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('setPinResult').textContent = 'ERROR: ' + (err.message || err);
+    console.error(err);
+  }
+});
+
+/* ---------- revokePin (admin token required) ---------- */
+$('revokePinBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const accountId = $('pin_accountId').value.trim();
+  const adminToken = prompt('Admin token (enter ADMIN_AUTH_TOKEN secret):');
+  if (!accountId || !adminToken) { alert('accountId + adminToken required'); return; }
+  $('setPinResult').textContent = 'Submitting revoke...';
+  try {
+    const resp = await fetch(cfg.setPinUrl.replace('/setPin','/revokePin'), {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ accountId, adminToken })
+    });
+    const json = await resp.json();
+    $('setPinResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('setPinResult').textContent = 'ERROR: ' + (err.message || err);
+    console.error(err);
+  }
+});
+
+/* ---------- signWithPin ---------- */
+$('signBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const accountId = $('sign_accountId').value.trim();
+  const pin = $('sign_pin').value.trim();
+  const txType = $('sign_txType').value;
+  let txParams = {};
+  try { txParams = JSON.parse($('sign_txParams').value); } catch(e){ alert('txParams must be valid JSON'); return; }
+  if (!accountId || !pin) { alert('accountId + pin required'); return; }
+  $('signResult').textContent = 'Submitting signWithPin...';
+  try {
+    const resp = await fetch(cfg.signWithPinUrl, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ accountId, pin, txType, txParams })
+    });
+    const json = await resp.json();
+    $('signResult').textContent = JSON.stringify(json, null, 2);
+    // if transactionId returned, let user know:
+    if (json && json.transactionId) {
+      alert('Server submitted tx: ' + json.transactionId + '\nCheck HashScan / MirrorNode for details.');
+    }
+  } catch (err) {
+    $('signResult').textContent = 'ERROR: ' + (err.message || err);
+    console.error(err);
+  }
+});
+
+/* ---------- getSignLog (admin token required) ---------- */
+$('getLogsBtn').addEventListener('click', async () => {
+  const cfg = loadConfig();
+  const accountId = $('sign_accountId').value.trim();
+  const adminToken = prompt('Admin token (enter ADMIN_AUTH_TOKEN secret):');
+  if (!accountId || !adminToken) { alert('accountId + adminToken required'); return; }
+  $('logResult').textContent = 'Fetching logs...';
+  try {
+    const url = new URL(cfg.getSignLogUrl);
+    url.searchParams.set('accountId', accountId);
+    url.searchParams.set('adminToken', adminToken);
+    const resp = await fetch(url.toString(), { method: 'GET' });
+    const json = await resp.json();
+    $('logResult').textContent = JSON.stringify(json, null, 2);
+  } catch (err) {
+    $('logResult').textContent = 'ERROR: ' + (err.message || err);
+    console.error(err);
+  }
+});
+</script>
+</body>
+</html>
