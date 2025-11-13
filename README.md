@@ -47,7 +47,7 @@ This is the core TRL-6 loop that is 100% functional, deployed, and demoed in our
 * Backend "Account Factory" (createAccount): Our backend createAccount function works. It successfully creates new, non-custodial Hedera accounts (as seen in our demo).
 * Backend "Minting" Function (mintRWAviaUSSD): Our backend mintRWAviaUSSD function works. It successfully mints our RWA-NFT (0.0.7134449) to a user's account (demoed at 0:34).
 * Frontend Marketplace UI: Our React app (integro-hed.netlify.app) works. It successfully fetches and displays the newly minted NFTs.
-* Frontend Escrow Logic: Our handleBuyNow and handleConfirmDelivery functions work. They successfully call our deployed Escrow.sol contract (0.0.7152729) to settle a multi-user trade.
+* Frontend Escrow Logic: Our handleBuyNow and handleConfirmDelivery functions work. They successfully call our deployed Escrow.sol contract (0.0.7182623) to settle a multi-user trade.
 * On-Chain Proof: Our demo video includes live HashScan verification of the final, successful NFT transfer. 
 A Note on Execution: This TRL-6 prototype was built from scratch in under 4 weeks by a solo developer (who joined the hackathon in October). The pivots and demo are proof of rapid, real-time development, not a lack of polish.
 💡 TRL 1-3 (Vision & Roadmap)
