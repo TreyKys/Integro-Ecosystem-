@@ -105,7 +105,7 @@ Hedera Integration Summary
 Our project is a 100% Hedera-Native stack, built after a strategic pivot away from unstable EVM-abstraction tools.
 * Hedera Account Service (HAS): This is the core of our "Account Factory." Our backend createAccount function programmatically creates new, non-custodial, ECDSA-based accounts, enabling our "seedless wallet" flow.
 * Hedera Token Service (HTS): We use HTS to mint our IVA-NFTs (0.0.7134449). Our secure backend mintRWAviaUSSD function handles this, proving our RWA model. The frontend also interacts with HTS for approvals (AccountAllowanceApproveTransaction).
-* Hedera Smart Contract Service (HSCS): We use HSCS for our trustless Escrow.sol contract (0.0.7152729). Our frontend React app calls ContractExecuteTransaction to run the fundEscrow and confirmDelivery functions, proving a true, non-custodial, multi-user trade.
+* Hedera Smart Contract Service (HSCS): We use HSCS for our trustless Escrow.sol contract (0.0.7182623). Our frontend React app calls ContractExecuteTransaction to run the fundEscrow and confirmDelivery functions, proving a true, non-custodial, multi-user trade.
 Economic Justification
 Our micro-transaction business model is only viable on Hedera. The platform's low, predictable fees (fractions of a cent for our entire "Golden Path") are essential for the informal economy. Its aBFT finality is critical for financial trust.
 6. How to Run This Project
@@ -154,7 +154,7 @@ npx firebase deploy --only functions
 7. Deployed IDs & Function URLs
 All contracts and tokens are deployed on the Hedera Testnet.
 * IVA-NFT Token ID: 0.0.7134449
-* Escrow Contract ID: 0.0.7152729
+* Escrow Contract ID: 0.0.7182623
 * Firebase Function URLs: (Note: These URLs are specific to your project's deployment)
 * createAccount: https://us-central1-integro-ecosystem.cloudfunctions.net/createAccount
 * mintRWAviaUSSD: https://us-central1-integro-ecosystem.cloudfunctions.net/mintRWAviaUSSD
