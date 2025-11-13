@@ -17,6 +17,7 @@ import DepositLiquidity from './pages/Finance/DepositLiquidity.jsx';
 import RepayLoan from './pages/Finance/RepayLoan.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 import USSDSimulator from './pages/USSDSimulator.jsx';
+import BecomeAgent from './pages/BecomeAgent.jsx';
 
 function App() {
   return (
@@ -62,6 +63,7 @@ const ProtectedRoutes = () => {
         <Route path="/agent-staking" element={<AgentStaking />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/ussd-simulator" element={<USSDSimulator />} />
+        <Route path="/become-agent" element={<BecomeAgent />} />
         {/* Add other protected routes here */}
         <Route path="*" element={<Navigate to="/marketplace" />} />
       </Routes>

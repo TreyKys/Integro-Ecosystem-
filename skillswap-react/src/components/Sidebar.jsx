@@ -31,12 +31,12 @@ const Sidebar = ({ isOpen, onClose }) => {
                                 <li><Link to="/lending-pool" onClick={onClose}>Lending Pool</Link></li>
                             </ul>
                         </li>
-                        <li className="sub-item"><Link to="/agent-staking" onClick={onClose}><LogisticsIcon /> Logistics</Link>
+                        <li className="sub-item"><Link to="#" onClick={onClose}><LogisticsIcon /> Logistics</Link>
                              <ul className="sub-menu">
-                                <li><Link to="/agent-staking" onClick={onClose}>Create Delivery Gig</Link></li>
+                                <li><Link to="#" onClick={onClose}>Create Delivery Gig</Link></li>
                             </ul>
                         </li>
-                        <li><Link to="/agent-staking" onClick={onClose}><AgentIcon /> Become an Agent</Link></li>
+                        <li><Link to="/become-agent" onClick={onClose}><AgentIcon /> Become an Agent</Link></li>
                     </ul>
                     <h4 className="menu-header">PROFILE & ACCOUNT</h4>
                     <ul>

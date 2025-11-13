@@ -211,6 +211,163 @@ exports.createAccount = onRequest({ secrets: [hederaAdminAccountId, hederaAdminP
   });
 });
 
+// ---------------------- NEW: Agent-based Listing Verification Flow ----------------------
+
+exports.claimListing = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
+  cors(request, response, async () => {
+    if (request.method !== "POST") return response.status(405).send({ error: "Method Not Allowed" });
+    try {
+      const { listingId, agentId, agentAccountId } = request.body;
+      if (!listingId || !agentId || !agentAccountId) return response.status(400).send({ error: "Missing required fields." });
+
+      // Auth: validate agent
+      const agentRef = db.collection("agents").doc(agentId);
+      const agentSnap = await agentRef.get();
+      if (!agentSnap.exists || agentSnap.data().accountId !== agentAccountId) return response.status(403).send({ error: "Unauthorized: Invalid agent." });
+
+      // Validate listing
+      const listingRef = db.collection("listings").doc(listingId);
+      const listingSnap = await listingRef.get();
+      if (!listingSnap.exists) return response.status(404).send({ error: "Listing not found." });
+      if (listingSnap.data().state !== "PENDING_VERIFICATION") return response.status(400).send({ error: "Listing is not pending verification." });
+
+      // Update listing
+      const updates = {
+        assignedAgent: agentId,
+        state: "UNDER_VERIFICATION",
+        assignedAt: admin.firestore.FieldValue.serverTimestamp()
+      };
+      await listingRef.update(updates);
+
+      // HCS anchor
+      const client = await getAdminClient();
+      const hcsMsg = { type: "ListingClaimed", listingId, agentId, agentAccountId, timestamp: new Date().toISOString() };
+      const anchor = await anchorToHcs(client, DEFAULT_USSD_HCS_DOC, hcsMsg);
+      await listingRef.update({ hcsAnchors: admin.firestore.FieldValue.arrayUnion(anchor) });
+
+      return response.status(200).send({ success: true, listingId, hcsAnchor: anchor });
+
+    } catch (error) {
+      console.error("ERROR in claimListing:", error);
+      return response.status(500).send({ error: String(error?.message || error) });
+    }
+  });
+});
+
+exports.verifyListing = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey, hederaAdminSupplyKey] }, (request, response) => {
+  cors(request, response, async () => {
+    if (request.method !== "POST") return response.status(405).send({ error: "Method Not Allowed" });
+    try {
+      const { listingId, agentId, agentAccountId, evidence, extraMetadata } = request.body;
+      if (!listingId || !agentId || !agentAccountId) return response.status(400).send({ error: "Missing required fields." });
+
+      // Auth: validate agent
+      const agentRef = db.collection("agents").doc(agentId);
+      const agentSnap = await agentRef.get();
+      if (!agentSnap.exists || agentSnap.data().accountId !== agentAccountId) return response.status(403).send({ error: "Unauthorized: Invalid agent." });
+
+      // Validate listing
+      const listingRef = db.collection("listings").doc(listingId);
+      const listingSnap = await listingRef.get();
+      if (!listingSnap.exists) return response.status(404).send({ error: "Listing not found." });
+      const listing = listingSnap.data();
+      if (listing.state !== "UNDER_VERIFICATION" || listing.assignedAgent !== agentId) return response.status(400).send({ error: "Listing not assigned to this agent for verification." });
+
+      // Prepare metadata
+      const evidenceHash = evidence && evidence.length > 0 ? crypto.createHash("sha256").update(JSON.stringify(evidence)).digest("hex") : null;
+      const combinedMetadata = { ...listing.assetMetadata, agentId, verifiedAt: new Date().toISOString(), evidenceHash, ...extraMetadata };
+      const metadataBuffer = Buffer.from(JSON.stringify(combinedMetadata));
+
+      // Metadata size guard
+      if (metadataBuffer.length > 100) {
+        // Store full evidence in Firestore, anchor only hash to HCS
+        await listingRef.update({ evidence }); // Store full evidence object
+        const hcsHashPayload = { type: "LargeMetadata", listingId, metadataHash: crypto.createHash("sha256").update(metadataBuffer).digest("hex") };
+        const client = await getAdminClient();
+        await anchorToHcs(client, DEFAULT_USSD_HCS_DOC, hcsHashPayload);
+        // For NFT, we must still use a sub-100-byte buffer. We can use a truncated or hashed version.
+        // Let's use a hash for consistency.
+        const nftMetadata = { listingId, metadataHash: hcsHashPayload.metadataHash };
+        const nftMetadataBuffer = Buffer.from(JSON.stringify(nftMetadata));
+        // Mint NFT with hashed metadata
+        await mintAndTransfer(listing.sellerAccountId, nftMetadataBuffer);
+      } else {
+        // Mint NFT with full metadata
+        await mintAndTransfer(listing.sellerAccountId, metadataBuffer);
+      }
+
+      const { serialNumber } = await mintAndTransfer(listing.sellerAccountId, metadataBuffer);
+
+      // Update listing state
+      const updates = {
+        tokenId: assetTokenContractId,
+        serialNumber,
+        state: "VERIFIED",
+        verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        verifiedBy: agentId,
+      };
+      await listingRef.update(updates);
+
+      // HCS anchor
+      const client = await getAdminClient();
+      const hcsMsg = { type: "ListingVerified", listingId, tokenId: assetTokenContractId, serialNumber, agentId, timestamp: new Date().toISOString() };
+      const anchor = await anchorToHcs(client, DEFAULT_USSD_HCS_DOC, hcsMsg);
+      await listingRef.update({ hcsAnchors: admin.firestore.FieldValue.arrayUnion(anchor) });
+
+      return response.status(200).send({ success: true, tokenId: assetTokenContractId, serialNumber, listingId, hcsAnchor: anchor });
+
+    } catch (error) {
+      console.error("ERROR in verifyListing:", error);
+      return response.status(500).send({ error: String(error?.message || error) });
+    }
+  });
+});
+
+async function mintAndTransfer(sellerAccountId, metadataBuffer) {
+  const adminId = hederaAdminAccountId.value();
+  const rawAdminPrivateKey = hederaAdminPrivateKey.value();
+  const rawSupplyKey = hederaAdminSupplyKey.value();
+  if (!rawAdminPrivateKey || !adminId || !rawSupplyKey) throw new Error("Admin credentials or supply key are not set as secrets.");
+  const adminPrivateKey = PrivateKey.fromStringECDSA(rawAdminPrivateKey);
+  const supplyPrivateKey = PrivateKey.fromStringED25519(rawSupplyKey);
+  const client = Client.forTestnet().setOperator(adminId, adminPrivateKey);
+
+  const mintTx = await new TokenMintTransaction().setTokenId(assetTokenContractId).setMetadata([metadataBuffer]).freezeWith(client);
+  const signedMintTx = await mintTx.sign(supplyPrivateKey);
+  const mintTxSubmit = await signedMintTx.execute(client);
+  const mintRx = await mintTxSubmit.getReceipt(client);
+  if (!mintRx.serials || mintRx.serials.length === 0) throw new Error("Minting succeeded but no serial number was returned.");
+  const serialNumber = Number(mintRx.serials[0].toString());
+
+  const transferTx = await new TransferTransaction().addNftTransfer(assetTokenContractId, serialNumber, adminId, sellerAccountId).freezeWith(client).execute(client);
+  await transferTx.getReceipt(client);
+
+  return { serialNumber };
+}
+
+
+// ---------------------- Scheduled Fallback (Stub) ----------------------
+
+// TODO: Deploy as a separate scheduled function if needed.
+// This is a stub for a potential cron job to handle fallback scenarios.
+exports.autoConfirmFallback = onRequest((request, response) => {
+  // This would be triggered by Cloud Scheduler, not a direct web call.
+  // It would query for purchases where delivery was confirmed by agent but not buyer for >24h.
+  console.log("autoConfirmFallback STUB called. No action taken.");
+  // Example logic:
+  // const now = admin.firestore.Timestamp.now();
+  // const yesterday = new admin.firestore.Timestamp(now.seconds - 86400, now.nanoseconds);
+  // const query = db.collection('purchases')
+  //   .where('state', '==', 'DELIVERED_BY_AGENT')
+  //   .where('agentDeliveryConfirmedAt', '<', yesterday);
+  // const snapshot = await query.get();
+  // for (const doc of snapshot.docs) {
+  //    const purchase = doc.data();
+  //    // Call confirmDelivery logic here for purchase.purchaseId
+  // }
+  response.status(200).send({ success: true, message: "Fallback stub executed." });
+});
+
 // ---------------------- Native NFT transfer endpoint (wrap performNativeNftTransfer) ----------------------
 exports.executeNativeNftTransfer = onRequest({ secrets: [hederaAdminAccountId, hederaAdminPrivateKey] }, (request, response) => {
   cors(request, response, async () => {

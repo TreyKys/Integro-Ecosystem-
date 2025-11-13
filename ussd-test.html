@@ -38,6 +38,10 @@
     <input id="cfg_confirmDelivery" value="https://us-central1-integro-ecosystem.cloudfunctions.net/confirmDelivery" />
     <label>createAgent URL</label>
     <input id="cfg_createAgent" value="https://us-central1-integro-ecosystem.cloudfunctions.net/createAgent" />
+    <label>claimListing URL</label>
+    <input id="cfg_claimListing" value="https://us-central1-integro-ecosystem.cloudfunctions.net/claimListing" />
+    <label>verifyListing URL</label>
+    <input id="cfg_verifyListing" value="https://us-central1-integro-ecosystem.cloudfunctions.net/verifyListing" />
     <div style="margin-top:8px;"><button id="saveConfigBtn">Save Config</button></div>
   </div>
 
@@ -120,6 +124,17 @@
     <pre id="agentSignupResult">No response yet.</pre>
   </div>
 
+  <div class="card">
+    <h3>Agent Actions</h3>
+    <input id="agent_listingId" placeholder="Listing ID" />
+    <input id="agent_agentId" placeholder="Agent ID" />
+    <input id="agent_agentAccountId" placeholder="Agent Account ID" />
+    <button id="claimListingBtn">Claim Listing</button>
+    <textarea id="agent_evidence" rows="2">{"notes":"Visual inspection complete."}</textarea>
+    <button id="verifyListingBtn">Verify Listing</button>
+    <pre id="agentActionsResult">No response yet.</pre>
+  </div>
+
 <script>
 const $ = id => document.getElementById(id);
 function loadConfig() {
@@ -132,6 +147,8 @@ function loadConfig() {
     buyNowUrl: $('cfg_buyNow').value,
     confirmDeliveryUrl: $('cfg_confirmDelivery').value,
     createAgentUrl: $('cfg_createAgent').value,
+    claimListingUrl: $('cfg_claimListing').value,
+    verifyListingUrl: $('cfg_verifyListing').value,
   };
 }
 $('saveConfigBtn').addEventListener('click', () => alert('Config saved (auto-filled defaults).'));
@@ -322,6 +339,47 @@ $('agentSignupBtn').addEventListener('click', async () => {
     $('agentSignupResult').textContent = 'ERROR: ' + (err.message || err);
     alert('Agent registration failed: ' + (err.message || err));
   }
+});
+
+/* ---------- Agent Actions ---------- */
+$('claimListingBtn').addEventListener('click', async () => {
+    const cfg = loadConfig();
+    const listingId = $('agent_listingId').value.trim();
+    const agentId = $('agent_agentId').value.trim();
+    const agentAccountId = $('agent_agentAccountId').value.trim();
+    $('agentActionsResult').textContent = 'Submitting claim...';
+    try {
+        const resp = await fetch(cfg.claimListingUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ listingId, agentId, agentAccountId })
+        });
+        const json = await resp.json();
+        $('agentActionsResult').textContent = JSON.stringify(json, null, 2);
+    } catch (err) {
+        $('agentActionsResult').textContent = 'ERROR: ' + (err.message || err);
+    }
+});
+
+$('verifyListingBtn').addEventListener('click', async () => {
+    const cfg = loadConfig();
+    const listingId = $('agent_listingId').value.trim();
+    const agentId = $('agent_agentId').value.trim();
+    const agentAccountId = $('agent_agentAccountId').value.trim();
+    let evidence = {};
+    try { evidence = JSON.parse($('agent_evidence').value); } catch (e) { alert('Evidence must be valid JSON'); return; }
+    $('agentActionsResult').textContent = 'Submitting verification...';
+    try {
+        const resp = await fetch(cfg.verifyListingUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ listingId, agentId, agentAccountId, evidence })
+        });
+        const json = await resp.json();
+        $('agentActionsResult').textContent = JSON.stringify(json, null, 2);
+    } catch (err) {
+        $('agentActionsResult').textContent = 'ERROR: ' + (err.message || err);
+    }
 });
 </script>
 </body>
