@@ -191,7 +191,7 @@ Reach: Many polished dapps assume smartphone wallets; Integro reaches feature-ph
 
 Practicality: We focused on one repeatable golden path (mint → list → escrow → deliver → transfer) and hardened it for demo reliability. This is better for live judging than a broad, untested feature set.
 
-Economics: Hedera’s low, predictable fees mean micro-transactions and per-message HCS anchoring are affordable at scale — critical for low-margin goods.
+Economics: Hedera’s low, predictable fees mean micro-transactions and per-message HCS anchoring are affordable at scale — critical for low-margin goods. We also tried using EVM tools but ultimately found out that their unstable and unreliable compared to Hedera's tools and SDKs
 
 Clear expansion path: PPSSS → HCS anchors → agent staking are incremental and demonstrable; we can show both the stable demo and the active branch roadmap on request.
 
