@@ -1,256 +1,209 @@
 
-*Project Integro — Trust Engine for the Informal Economy*
+🪙 Project Integro
+Project Track: DLT for Operations
+This is the main repository for the Integro Ecosystem — our TRL 4-6 (Working Prototype) submission for the Hedera Africa Hackathon.
 
-Track: DLT for Operations
-TRL: 4–6 (Working prototype; stable Golden Path deployed)
+Key Project Links
+Live Web App (TRL 4-6 Demo): https://integro-hed.netlify.app
+Demo Video (Required): https://youtube.com/shorts/uRq0YBxHz3c?si=EzFi-5K9EeIgQ6Xj
+Pitch Deck (Required): https://docs.google.com/presentation/d/1odNrYgbW6caQov2oztkxDawTvbzmURmCN2XT4r5bkGI/edit?usp=drivesdk
+Hedera Certification (Required): View our On-Chain Certification NFT
+(Note: per submission guidelines the account Hackathon@hashgraph-association.com has been invited as collaborator.)
 
-Live demo: https://integro-hed.netlify.app
-Demo video: https://youtu.be/g0xtMrfzN9U?si=MeBhpT89FnLRyC3m
-Pitch deck: https://docs.google.com/presentation/d/1odNrYgbW6caQov2oztkxDawTvbzmURmCN2XT4r5bkGI/edit?usp=drivesdk
-Hedera certification: https://i.postimg.cc/BbJYZ1j9/205e97fd-e799-4d51-a82f-c0b09a53aa4d-1.png
+1. Our Vision: Integrity & Growth
+Our mission is to integrate Africa’s fragmented, $3 trillion informal economy into a single, whole ecosystem.
 
+Integrity: Build trust via a decentralized Trust Engine (Identity, Reputation, Escrow).
+Growth: Unlock economic opportunity via three arms — Marketplace, Finance (Lending), and Logistics.
+2. The Problem We Solve
+The informal economy is trapped by two barriers:
 
-Integro aims to remove the two biggest barriers keeping Africa’s informal economy locked out of scalable markets: (1) lack of verifiable trust for goods & people, and (2) lack of access for feature-phone users. We tokenize real goods as Hedera NFTs, secure payments with an on-chain escrow, and let buyers and sellers on feature phones complete tokenized trades using a PIN-protected USSD bridge. The result: verifiable transactions, instant settlement paths, and on-ramp to credit and finance for communities previously excluded.
+Integrity Gap: no verifiable identity, no proof of asset quality, no secure payment settlement.
+Digital Divide: most solutions ignore the ~85% of users on feature phones — a major access gap that blocks finance and markets.
+3. What Integro Is & TRL Status
+We are honest about what’s built and what’s in progress.
 
-Why this is important — problem & opportunity
+TRL 4–6 (Working Prototype — Stable branch / deployed demo)
+The stable branch demonstrates a single, reliable golden path suitable for a live demo:
 
-The informal economy in Africa is vast — trillions USD in annual value — yet lacks verifiable identity, transparent settlement, and accessible digital rails. That suppresses liquidity, increases fraud, and excludes billions from formal finance.
+Core live components (stable branch):
 
-Existing blockchain demos often target smartphone/crypto users. But ~85% of our target users - Africans - still use feature phones. A solution that actually reaches them will unlock a new wave of inclusion.
+Account Factory — createAccount (server): creates non-custodial Hedera accounts and returns client keys for the demo.
+RWA NFT Minting — mintRWAviaUSSD (server): mints the IVA-NFT and transfers serials to users.
+Listing & Market — frontend marketplace UI shows minted assets.
+Escrow & Settlement — fundEscrow and confirmDelivery execute on-chain with the deployed escrow contract.
+IDs used in stable demo
 
-Integro’s unique combination — USSD accessibility + Hedera native tokenization + escrowed settlement — is a practical, low-cost, and verifiable way to move real goods + money on chain for those who need it most.
+Integro Verified Asset (IVA-NFT) Token ID: 0.0.7134449
+Escrow Contract ID (stable demo): 0.0.7182623
+Important: the stable demo does not use PPSSS (PIN signer) or HCS anchoring — those are in the active development branch. The stable branch is deliberately minimal and reliable for demoing the golden path.
 
+TRL 1–3 (Vision / roadmap)
+Finance arm (Lending Pool): architecture ready; smart contracts not yet deployed.
+Logistics arm (Agent staking, SBTs): UI scaffolding ready; staking/slashing contracts are roadmapped.
+4. The USSD Simulator — Vision vs Reality
+Our killer accessibility feature is the USSD/SMS bridge for feature phones.
 
+We built the backend USSD-ready functions (createAccount, mintRWAviaUSSD, etc) so the full Golden Path can be executed via USSD.
+The stable demo intentionally shows the web app golden path (more reliable for judges). The USSD simulator UI had state-management issues that would have made live demo flaky — the backend is production-ready; the front-end USSD simulator is in active dev.
+5. Technical Architecture (high level)
+graph TD
+    subgraph "User Interface (TRL 4-6)"
+        WebApp[React Web App]
+        USSDSim[USSD Simulator UI]
+    end
+    subgraph "Backend Logic (Serverless)"
+        FirebaseFns[Firebase Cloud Functions]
+    end
+    subgraph "Data & State"
+        Firestore[Firestore Database]
+    end
+    subgraph "Hedera DLT (Source of Truth)"
+        HAS[Hedera Account Service]
+        HTS[Hedera Token Service]
+        HSCS[Hedera Smart Contract Service]
+        HCS[Hedera Consensus Service - active branch]
+    end
 
-What we built — headline features (stable demo)
+    WebApp -- HTTPS Call --> FirebaseFns
+    USSDSim -- HTTPS Call --> FirebaseFns
 
-Account factory (non-custodial): create Hedera ECDSA accounts with private key returned to the user (demoed).
+    FirebaseFns -- Creates/Reads/Updates --> Firestore
+    FirebaseFns -- Submits Transactions --> HAS
+    FirebaseFns -- Submits Transactions --> HTS
+    FirebaseFns -- Submits Transactions --> HSCS
+    FirebaseFns -- (active) Submits Anchors --> HCS
 
-RWA NFT minting (HTS): mintRWAviaUSSD mints IVA NFTs for real goods (token ID used in demo: 0.0.7134449).
+    Firestore -- Mirrors On-Chain State --> WebApp
+    Firestore -- Mirrors On-Chain State --> USSDSim
 
-Smart-contract escrow (HSCS): Escrow.sol locks funds until delivery is confirmed (Escrow contract: 0.0.7182623).
+    HAS -- Creates --> UserAccount[User 0.0.X Account]
+    HTS -- Mints --> NFT[IVA-NFT]
+    HSCS -- Manages --> Escrow[Escrow.sol Contract]
+    HCS -- Anchors --> DID[Identity / Events]
 
-Allowance-based NFT transfer: secure transfer of NFT ownership after confirmDelivery — seller retains custody until final settlement.
+    UserAccount -- Owns --> NFT
+    UserAccount -- Interacts with --> Escrow
+A note on keys & non-custodial design
+Our createAccount returns generated private key material to the client as part of the non-custodial demo. In a production mobile app the private key would be stored in the device keychain. For the demo we intentionally keep keys client-side to show ownership and signing flows.
 
-PIN-protected server signing (PPSSS prototype, still building - under active development): USSD flows use a PIN to authenticate actions; server signs limited transactions via a dedicated signer for USSD convenience while minimizing exposure.
+Security & deployment: DO NOT commit private keys to the repo. Put them in /functions/.env locally or in your Firebase secrets. (See Deployment section below.)
 
-Hybrid UX: Marketplace web app (React) + USSD bridge for buyers/sellers (backend functions). Agents (verification) are web-only (Under active development)
+6. Active development branch (what’s being built now - not present in stable demo)
+This is the powerful, innovation layer that extends the golden path into a robust Trust Engine.
 
-Mirrored off-chain UX state: Firestore mirrors marketplace state so web + USSD menus show consistent information.
+Key features in the active branch:
 
+PPSSS (PIN-based remote signer): a PIN Signer model so USSD users can authenticate and sign sensitive flows without exposing private keys. Backend holds a PIN signer key in secure env; users authenticate with a PIN that authorizes the signer for a single action.
+HCS Anchoring (Audit trail): every major state change (ListingCreated, ListingVerified, EscrowFunded, DeliveryConfirmed, AgentCreated) is anchored to an HCS topic for an immutable public audit trail and DID verifiability.
+DID Integration: DID creation & anchoring flow: accounts/listings/agent claims are anchored with DID-style records (HCS + on-chain hashes) so identity & events are verifiable off-chain.
+Agent Onboarding & Dashboard: agents are web-only actors who claim, verify, and mint listings. The agent dashboard shows pending listings and verification controls.
+Agent Claim & Verify flows: claimListing → verifyListing — these calls mint RWA SBTs/NFTs as part of verification, update Firestore, and push anchors to HCS.
+Automated fallbacks: auto-confirmation 24 hours after delivery if buyer doesn't act (configurable safety net).
+Delivery gig creation & tracking: delivery assignments are created when buyNow completes; delivery agent confirms via web dashboard; this triggers confirmDelivery flows.
+These active-branch features are under development and will be merged once stably tested. You can find them in the active branch.
 
+7. The Golden Path (stable branch — exactly what you can demo)
+createAccount (serverless function) → creates a Hedera account and returns private key to client (demo-only).
+mintRWAviaUSSD (server) → mints an IVA-NFT (HTS) and transfers NFT serial to seller.
+Seller lists asset on web app → Firestore listing created.
+Buyer funds escrow by calling fundEscrow on the escrow contract (0.0.7182623) — buyer signs with their client key.
+Delivery & confirmDelivery → buyer calls confirmDelivery (client-signed). Backend runs executeNativeNftTransfer to transfer NFT serial to buyer and release funds.
+Demo verification checklist (short):
 
----
+Check createAccount returned account ID and private key.
+Check HashScan for token mint (token 0.0.7134449) and transfer serial.
+Check Firestore listings/{listingId} and purchases/{purchaseId} state transitions.
+Check fundEscrow and confirmDelivery transactions on HashScan for 0.0.7182623.
+8. Hedera SDK transactions used (stable & active references)
+Use these SDK classes in your functions (examples are representative patterns):
 
-The real envisioned Golden Path 
+AccountCreateTransaction → create accounts
+TokenMintTransaction → mint NFT metadata + serials
+TransferTransaction → transfer NFT serials (addNftTransfer)
+AccountAllowanceApproveTransaction → approve token/NFT allowances (if using allowance flow)
+ContractExecuteTransaction + ContractFunctionParameters → call fundEscrow, confirmDelivery on HSCS contract (0.0.7182623)
+TopicCreateTransaction, TopicMessageSubmitTransaction → create HCS anchors (active branch)
+FileCreateTransaction / FileAppendTransaction → HFS metadata uploads (if used)
+Pattern reminders: .freezeWith(client) before .sign() for multi-signer flows; always call .getReceipt(client) after .execute(client).
 
+9. Why Integro is a game changer (concise & hard-hitting)
+Accessible by design: built from day one to include feature-phone users via a USSD bridge — that unlocks massive volumes of previously excluded economic activity.
+Native Hedera integration: HTS + HSCS + (active) HCS create a tamper-evident, performant commercial loop for low-margin, high-frequency trades. Hedera’s cheap, predictable fees make micro-transactions economically feasible.
+Non-custodial ownership: the Account Factory proves a real seedless wallet flow suitable for mass onboarding without forcing users to pre-provision wallets.
+Verifiable Trust Engine: agent verification, HCS anchoring, and future SBT reputation combine to create a verifiable reputation layer that lenders and buyers can trust — this is the core infrastructure that makes informal market creditable.
+Actionable business impact: reduces fraud, opens liquidity for smallholders (tokenizable RWAs), and lowers settlement friction — all key to unlocking billions in value across African informal markets.
+10. How to run (dev & deploy)
+Prerequisites
+Node.js (v18+), npm
+Firebase CLI (npm i -g firebase-tools)
+Install
+git clone https://github.com/Hashgraph-Association/DLT-Operations-Track-Submission-Integro.git
+cd DLT-Operations-Track-Submission-Integro
 
-> Important IDs 
+npm install --prefix skillswap-react
+npm install --prefix skillswap-contracts
+npm install --prefix functions
+Environment variables (secure: DO NOT COMMIT)
+Create /functions/.env and add the following (example — do not paste secret values in repo):
 
+# Hedera admin (for server-side actions). Set these locally in your environment only.
+HEDERA_ADMIN_ACCOUNT_ID="0.0.xxxxx"
+HEDERA_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+
+# Admin supply key for the IVA-NFT (used by mintRWAviaUSSD)
+HEDERA_ADMIN_SUPPLY_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+
+# PPSSS / PIN Signer keys (active branch only — keep secret)
+PIN_SIGNER_PRIVATE_KEY="..."
+PIN_SIGNER_ACCOUNT_ID="0.0.xxxxx"
+Important: paste your real private key(s) locally into /functions/.env or into Firebase Secrets via the Firebase console. Do not commit them to Git.
+
+Run the frontend locally
+npm run dev --prefix skillswap-react
+# Open http://localhost:5173
+Deploy functions
+npx firebase login
+npx firebase use <your-project-id>
+npx firebase deploy --only functions
+11. All Currently Deployed IDs (First 4 for stable demo)
 IVA-NFT Token ID: 0.0.7134449
-
 Escrow Contract ID: 0.0.7182623
+Cloud functions (example endpoints):
+Function URL (createAccount(us-central1) ): https://createaccount-cehqwvb4aq-uc.a .run.app
 
-Firebase functions (example base): https://us-central1-integro-ecosystem.cloudfunctions.net/...
+Function URL (executeNativeNftTransfer(u s-central1)): https://executenativenfttr ansfer-cehqwvb4aq-uc.a.run.app
 
+Function URL (mintRWAviaUSSD (us-central1 )): https://mintrwaviaussd-cehqwvb4aq-uc .a.run.app
 
+Function URL (setUserProfile(us-central1 )): https://setuserprofile-cehqwvb4aq-uc .a.run.app
 
+Function URL (claimListing(us-central1)) : https://us-centrall-integro-ecosystem. cloudfunctions.net/claimListing
 
-0. Prep (1–2 min)
+Function URL (verifyListing(us-central1) ): https://us-central1-integro-ecosystem .cloudfunctions.net/verifyListing
 
-Open two browsers (or one web + USSD simulator) to show buyer and seller separation.
+Function URL (setPin(us-central1)): http s://setpin-cehqwvb4aq-uc.a.run.app
 
-Ensure HashScan / Mirror Node are available: https://hashscan.io/testnet/ and https://testnet.mirrornode.hedera.com/.
+Function URL (signWithPin(us-central1)): https://signwithpin-cehqwvb4aq-uc.a.run .app
 
+Function URL (revokePin(us-central1)): h ttps://revokepin-cehqwvb4aq-uc.a.run.app
 
-1. Seller: Create account (createAccount)
+Function URL (getSignLog(us-central1)): https://getsignlog-cehqwvb4aq-uc.a.run.a pp
 
-Call createAccount via the web UI (or via function URL).
+Function URL (createPendingListing(us-ce ntral1)): https://creatependinglisting-
+cehqwvb4aq-uc.a.run.a pp
 
-Expected: a new Hedera account id (e.g., 0.0.xxxxx) and an ECDSA private key (returned to client).
-
-Verify: Check account existence on Mirror Node / HashScan by accountId.
-
-
-2. Seller: Mint RWA NFT (mintRWAviaUSSD)
-
-Seller mints a RWA NFT to their newly created account using mintRWAviaUSSD (metadata includes assetType/location/quality).
-
-Expected: Mint transaction receipt with serial number(s). The function returns { tokenId: "0.0.7134449", serialNumber: <n> }.
-
-Verify: Use HashScan to view the HTS mint transaction and the NFT serial.
-
-
-3. Seller: List item in marketplace (web UI or USSD)
-
-Seller creates a listing stored in Firestore with state: PENDING_VERIFICATION (or immediately visible if verified).
-
-Expected: Listing record in Firestore (collection listings/{listingId}).
-
-Verify: Open Firestore console to show the listing document.
-
-
-4. Agent (web-only): Claim & Verify (Claim → Verify)
-
-Agent (web) claims the listing and runs verification (optional in demo — you can use a built agent account to verify immediately).
-
-Expected: Listing state changes to VERIFIED with tokenId and serialNumber populated and HCS anchor (if active branch used).
-
-Verify: Firestore listing updated; HashScan shows HCS anchor if HCS was used.
-
-
-5. Buyer: BuyNow → fundEscrow
-
-Buyer selects listing and triggers fundEscrow (via web or USSD + PPSSS).
-
-Payload (example):
-
-
-{
-  "escrowContractId":"0.0.7182623",
-  "tokenId":"0.0.7134449",
-  "amountHbar": 1
-}
-
-Expected: Smart-contract function fundEscrow transaction receipt (transaction id). Firestore purchase document created: purchases/{purchaseId} with state: FUNDED and fundTxId.
-
-Verify: Check HashScan for contract call and Firestore for purchase doc.
-
-
-6. Seller: Mark delivered → buyer confirms delivery (confirmDelivery)
-
-Buyer confirms delivery. Call confirmDelivery against escrow contract (via web app or PPSSS flow on USSD).
-
-Expected: Smart-contract confirmDelivery transaction receipt — escrow logic releases funds; on success, backend triggers NFT transfer (allowance-based) via executeNativeNftTransfer. purchases/{purchaseId} updates with confirmTxId and nftTransferTxId.
-
-Verify: Confirm on HashScan: escrow confirm tx and the TransferTransaction moving NFT from seller → buyer.
-
-
-7. Audit proof (HashScan / Mirror Node)
-
-For both escrow and NFT transfer transactions, open HashScan for transaction details and the Mirror Node for consensus timestamps. Show the chain of receipts as indisputable proof.
-
-
-
----
-
-Trust Engine - 5 verification points, ensures security. 
-
-1. End-to-end receipts — show both the escrow fundEscrow receipt and the confirmDelivery receipt on HashScan.
-
-
-2. NFT serial evidence — the minted serial on HTS and the final addNftTransfer transfer receipt.
-
-
-3. Account separation — buyer and seller must be different Hedera accounts created in step 1.
-
-
-4. Firestore state mirrors — listings and purchases documents reflect the on-chain actions.
-
-
-5. USSD + Web parity — show that the same purchase flow can be initiated from USSD (via PPSSS) or Web with matching results.
-
-
-
-
----
-
-Real-world impact — how Integro changes lives
-
-We frame impact in three immediate, verifiable ways:
-
-1. Faster access to payment & liquidity (farmers & traders)
-
-Problem today: Farmer sells goods at market, trusted buyer pays later or not at all; no formal receipt to collateralize loans.
-
-Integro outcome: Each sale mints a verifiable NFT receipt and uses escrow for immediate, conditional settlement. Farmers can use the NFT + on-chain proof to access micro-credit or forward-sale financing the same day instead of waiting weeks.
-
-
-Estimated immediate benefit (conservative): If 10% of a local market adopts immediate tokenized receipts, sellers can unlock days/weeks of working capital — lowering lost-sales and improving income stability.
-
-2. Drastically lower fraud & disputes (market integrity)
-
-Problem today: Disputes resolved offline — slow & opaque.
-
-Integro outcome: Delivery confirmations, NFT receipts, and HCS anchors create auditable evidence. Dispute resolution becomes quantitative: HashScan + Firestore logs show transaction trail and timestamps. This reduces time-to-resolve and lowers dispute costs for small merchants.
-
-
-3. Financial inclusion cascade (credit + marketplaces)
-
-Problem today: No reliable, verifiable on-chain collateral accepted by lenders.
-
-Integro outcome: Tokenized goods + transaction history = creditworthy digital footprint. Small merchants gain access to micro-loans, input financing, and on-chain marketplaces beyond the local market.
-
-
-
----
-
-Advantages over “complete” but non-hybrid projects (concise)
-
-Reach: Many polished dapps assume smartphone wallets; Integro reaches feature-phone users via USSD (the actual majority in many regions). That access multiplies the addressable market dramatically.
-
-Practicality: We focused on one repeatable golden path (mint → list → escrow → deliver → transfer) and hardened it for demo reliability. This is better for live judging than a broad, untested feature set.
-
-Economics: Hedera’s low, predictable fees mean micro-transactions and per-message HCS anchoring are affordable at scale — critical for low-margin goods. We also tried using EVM tools but ultimately found out that their unstable and unreliable compared to Hedera's tools and SDKs
-
-Clear expansion path: PPSSS → HCS anchors → agent staking are incremental and demonstrable; we can show both the stable demo and the active branch roadmap on request.
-
-
-
----
-
-Security & privacy notes 
-
-Non-custodial account model: createAccount returns private key — the demo demonstrates seedless user control. For production, keys must be stored in secure keychains.
-
-PPSSS tradeoff: PPSSS provides convenience for USSD but introduces a server-side signing key; we minimize trust by restricting its signing surface and will replace with KMS/HSM & device delegation for production.
-
-Agent operations: agents are web-only and require authenticated role checks before claim/verify actions (to prevent USSD abuse).
-
-
-
----
-
-What’s in the active development branch (not in stable demo)
-
-Full HCS anchoring for DID, listing lifecycle, delivery confirmations (audit trail).
-
-More robust PPSSS hardening (KMS integration & narrower signing surface).
-
-Delivery gig automation, agent staking & slashing smart contract spec (demo/test mode).
-
-USSD stateful UI improvements and human-readable listing strings for SMS menus.
-
-
-> We keep the stable branch deployed for live demos because it has the cleanest, most reliable golden path and also because of compliance issues. The active branch contains advanced features we will merge after QA and pilot acceptance.
-
-
-
-
----
-
-Final ask (what we want from judges & partners)
-
-Judges: Invite Integro to the private pitch so we can demo the stable Golden Path live and show advanced HCS/PPSSS features on the active branch if desired.
-
-Telcos / Aggregators: Pilot the USSD flow with a small user base for 30 days.
-
-Microfinance partners: Pilot collateral acceptance for RWA NFTs to test loan conversion and liquidity unlocking.
-
-
-
----
-
-Contact & credits
-
-Project Lead / contact: Dayo Ogunlana
-
-Live app: https://integro-hed.netlify.app
-
-Demo video: https://youtu.be/g0xtMrfzN9U?si=MeBhpT89FnLRyC3m
-
-
-*Hedera aims to build the trust layer for the global digital economy. Integro can be the tool employed in building the trust layer for Africa's Informal Economy.*
-
-
-
+12. Tests & smoke checks (quick)
+createAccount succeeds → check account on HashScan.
+mintRWAviaUSSD → check token 0.0.7134449 > serial minted & transferred.
+Create listing in web UI → Firestore listings entry present.
+fundEscrow (buyer signs) → check fundEscrow tx on HashScan for 0.0.7182623.
+confirmDelivery → check NFT transfer on HashScan; Firestore purchase state: SOLD.
+13. Roadmap (what’s next)
+Merge active branch: PPSSS, HCS anchoring, DID integration, claim/verify agent flows.
+Lending Pool: deploy lending contracts and integrate SBT reputation.
+Telco integration: pilot USSD with partner telco for country-level rollouts.
+Security & hardening: auditing, secrets management (KMS), doxxed testnet admin rotation.
+14. Final note
+Do not commit private keys. Ever. Put them in /functions/.env locally or in secret store in Firebase/Cloud.
+The stable branch is intentionally minimal and reliable for demos. The active branch contains the Trust Engine and advanced features (PPSSS, HCS anchoring, DID) and will be merged once fully tested.
