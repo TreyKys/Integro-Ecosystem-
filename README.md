@@ -102,7 +102,7 @@ The stable demo intentionally shows the web app golden path (more reliable for j
 
 5. Technical Architecture (high level)
 
-'''
+```
 graph TD
     subgraph "User Interface (TRL 4-6)"
         WebApp[React Web App]
@@ -135,7 +135,7 @@ graph TD
     HCS -- Anchors --> DID[Identity / Events]
     UserAccount -- Owns --> NFT
     UserAccount -- Interacts with --> Escrow
-'''
+```
 
 A note on keys & non-custodial design
 
