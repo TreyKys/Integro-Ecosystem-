@@ -42,6 +42,8 @@ The informal economy is trapped by two barriers:
 
 Integrity Gap: no verifiable identity, no proof of asset quality, no secure payment settlement.
 
+The "Growth Ceiling": This trust gap leads to financial exclusion. You can't get a loan if you have no credit history. This creates a $330B+ annual financing gap.
+
 Digital Divide: most solutions ignore the ~85% of users on feature phones — a major access gap that blocks finance and markets.
 
 
